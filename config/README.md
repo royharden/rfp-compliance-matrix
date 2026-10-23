@@ -17,3 +17,17 @@ Never set admission fields merely to make an example run. Keys are environment
 variable names only and never belong in this file. Use one shared machine-local
 ledger across clients/processes. No moving model alias or invented F2 probability
 distribution is permitted.
+
+`semantic_fingerprint` defaults to the empty string; this is an explicit missing
+binding and cannot enable future live calls. Configuration construction never
+collects source or metadata. For a future authorized real-live factory, supply
+the full verified `semantic_provenance` descriptor as well as the matching
+full-run envelope and prospective record. A hash alone is insufficient. Actual
+judge/attempt checks current process/source before key, SDK or ledger dispatch.
+Changed semantics require a fresh context/config/envelope and genuine
+reassessment; old replay/evidence cannot be rebound to a new fingerprint.
+Process source drift requires restart. Descriptor integrity is not execution,
+account authorization, license clearance or security attestation.
+
+The keyless example remains disabled with zero budget. No descriptor, real
+approval, source collector output, credential or measured price is embedded.

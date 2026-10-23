@@ -1,0 +1,46 @@
+{% macro warnings(items) -%}
+{% if items %}<aside class="warning" aria-label="Review warnings"><ul>{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul></aside>{% endif %}
+{%- endmacro %}
+
+{% macro policy_warning(status) -%}
+<aside aria-label="Semantic policy provenance" class="{{ 'meta' if status.get('allows_current_claim') is sameas true else 'warning' }}">
+  <strong>Semantic policy: {{ status.get('status', 'missing') }}</strong>
+  {% if status.get('allows_current_claim') is not sameas true %}<p>Current semantic approval cannot be asserted from this view. Inspect history and explicitly reimport/reassess; restart first if the process source has drifted.</p>{% endif %}
+  {% if status.get('reasons') %}<ul>{% for reason in status.get('reasons', []) %}<li>{{ reason }}</li>{% endfor %}</ul>{% endif %}
+  <p class="meta">Recorded <code>{{ status.get('recorded_fingerprint', '') }}</code> · Current <code>{{ status.get('current_fingerprint', '') }}</code>. Source integrity is not proof of executed assessment, compatibility, security or model quality.</p>
+</aside>
+{%- endmacro %}
+
+{% macro pointer(p) -%}
+<div class="pointer">
+  <blockquote>{{ p.quote }}</blockquote>
+  <p class="meta">{% if p.page_number is not none %}Page {{ p.page_number }} · {% endif %}
+    {% if p.section_id %}Section {{ p.section_id }} · {% endif %}
+    {% if p.record_id %}Fictional record {{ p.record_id }} · {% endif %}
+    Original Unicode interval [{{ p.start }}, {{ p.end }})
+    {% if p.broad_fallback %} · Broad window{% endif %}</p>
+  <details><summary>Pointer identity</summary><dl class="identities">
+    <dt>Source hash</dt><dd><code>{{ p.source_sha }}</code></dd>
+    <dt>Artifact hash</dt><dd><code>{{ p.artifact_sha }}</code></dd>
+    <dt>Excerpt hash</dt><dd><code>{{ p.excerpt_sha }}</code></dd>
+    {% if p.sentence_id %}<dt>Sentence/window</dt><dd><code>{{ p.sentence_id }}</code></dd>{% endif %}
+  </dl></details>
+</div>
+{%- endmacro %}
+
+{% macro changes(delta) -%}
+<section aria-label="Source and corpus changes">
+  <h2>Changes and stale approvals</h2>
+  {% if delta.available %}
+  <p>Comparison: original text and identity only. Semantic equivalence: {{ delta.semantic_equivalence }}. Ancestry: {{ delta.ancestry }}.</p>
+  {% if delta.all_dependent_approvals_stale %}<p class="warning">All dependent approvals are stale. Current source and evidence require review.</p>{% endif %}
+  <dl class="identities"><dt>Old artifact</dt><dd><code>{{ delta.old_artifact_sha }}</code></dd><dt>New artifact</dt><dd><code>{{ delta.new_artifact_sha }}</code></dd><dt>Old corpus</dt><dd><code>{{ delta.old_corpus_generation }}</code></dd><dt>New corpus</dt><dd><code>{{ delta.new_corpus_generation }}</code></dd></dl>
+  {% for entry in delta.entries %}<details><summary>{{ entry.kind }}{% if entry.page_number %} · Page {{ entry.page_number }}{% endif %}{% if entry.record_id %} · Record {{ entry.record_id }}{% endif %}</summary>
+    <p>{{ entry.comparison }}</p><div class="comparison"><div><h3>Before</h3><pre>{{ entry.old_quote }}{% if entry.old %}{{ entry.old.quote }}{% endif %}</pre><code>{{ entry.old_sha }}</code></div><div><h3>After</h3><pre>{{ entry.new_quote }}{% if entry.new %}{{ entry.new.quote }}{% endif %}</pre><code>{{ entry.new_sha }}</code></div></div>
+  </details>{% else %}<p>No individual change excerpts supplied.</p>{% endfor %}
+  {% for policy in delta.parser_policy_changes %}<p>{{ policy.name }}: <code>{{ policy.old }}</code> → <code>{{ policy.new }}</code></p>{% endfor %}
+  {% if delta.truncated %}<p class="warning">Change display is truncated. {{ delta.display_omitted_entries }} entries omitted from this view; {{ delta.omitted_entries }} omitted by the source report.</p>{% endif %}
+  {{ warnings(delta.warnings) }}
+  {% else %}<p>Change context is unavailable. This does not establish unchanged evidence or preserve approval.</p>{% endif %}
+</section>
+{%- endmacro %}

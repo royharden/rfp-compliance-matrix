@@ -1,38 +1,116 @@
 # RFP compliance matrix
 
-A local Python review tool for native-text PDF RFPs and an explicitly fictional vendor evidence corpus. It preserves literal source spans, distinguishes support from counterevidence and gaps, records explicit human decisions, and prepares a complete Markdown/CSV/HTML matrix with decision lineage.
+A local Python CLI/TUI for reviewing a native-text PDF RFP against an explicitly
+fictional vendor corpus. It preserves literal source spans, supporting and
+contradictory evidence, explicit human decisions and a complete HTML/CSV/Markdown
+matrix with generation lineage. It helps reviewers inspect evidence; it does not
+establish legal compliance or commit a vendor.
 
-**Construction source — runtime unverified.** Built under Roy's Dirty Mode instruction. Only source inspection and syntax parsing are permitted in this phase. The application, dependency imports, PDF parser, SQLite/LangGraph restart path and exports have not run. No model-quality, speed, cost, security or release-readiness claim is made. No service, account, deployment or remote repository is needed for the intended local CLI.
+**Construction source — runtime unverified.** No app, test, parser, database,
+LangGraph, model, generator or evaluation execution has occurred in this phase.
+No measured quality, speed, cost, security or release-readiness claim is made.
 
-## What is implemented in source
+## Source capabilities
 
-- Native-text PDF import, immutable source identity and original Unicode-codepoint anchors; per-page extraction coverage warnings.
-- Structural requirement inventory, BM25 candidates, conservative evidence/contradiction handling and typed unavailable provider outcomes. Injected mock/replay typed-inventory and registered-ID judgment ports exist; live SDK/HTTP wrappers and a transport concurrency/deadline controller are absent and unadmitted. They are source work still to implement, not merely untested integrations.
-- Local durable review state with exact-generation decisions, explicit positive/gap approvals, pending edits, history and corpus-wide stale approvals.
-- CLI/TUI source/context review with versioned interpretation/applicability/split/merge controls, real LangGraph checkpoint bridge source, synchronous decision-intent reconciliation and deterministic export/recovery source.
-- Public development scoring with one-to-one adjudicated atom matching, explicit denominators, mandatory misses, retrieval/citation/abstention metrics, family-bootstrap summaries, full/preliminary dataset-count eligibility and four method rows.
+- Immutable source/artifact identity and original Unicode anchors; explicit
+  per-page coverage and separate versioned human inspection policy.
+- Structural/modal inventory, BM25, registered evidence and conservative gap/
+  counterevidence states; injected mock/replay ports and lazy gated provider source.
+- SQLite decision authority, actor-owned coverage events, exact-revision approvals,
+  pending edits, versioned split/merge/applicability and stale source/corpus changes.
+- CLI/TUI review and source navigation, LangGraph pause/reconciliation source,
+  deterministic all-row exports and recovery/maintenance source.
+- Development scorer with one-to-one adjudicated atoms, explicit denominators,
+  mandatory misses, family uncertainty and four unmeasured method rows.
+- Prospective fake-port comparison freeze with an external consumed-seal/scorer
+  boundary; rights/family/annotation contracts that create no permission or custody.
+- Actual four-arm source/evidence pipeline adapter source, closed provenance and
+  source-only evaluation/custody regression definitions; none have been executed.
 
-## Intended use after runtime validation is authorized
+## Intended later use
 
-The intended later activation command is `uv sync --extra graph`, which includes the real LangGraph SQLite-checkpoint dependencies. Dependency resolution, lockfile compatibility and required license admission are deferred; no installs were performed during construction. Use the `rfp-matrix` entry point or `python -m rfp_matrix` in the activated environment.
+After environment activation and validation are authorized, resolve compatible
+licensed dependencies and the lockfile. The intended setup is `uv sync --extra
+graph`; it has not been run. Keep local state outside OneDrive and providers
+disabled/zero-budget. The proposed keyless journey is:
 
 ```text
 rfp-matrix diagnostics
-rfp-matrix import <permitted-text.pdf> --vendor <fictional.jsonl> --run demo --terms "<permitted-use terms>"
+rfp-matrix import <permitted-text.pdf> --vendor <fictional.jsonl> --run demo --terms '<permitted terms>'
 rfp-matrix review --run demo --interactive
 rfp-matrix resume --run demo
-rfp-matrix export --run demo --out <directory> --matrix-generation <displayed-generation> --request-id <stable-id>
-rfp-matrix update-evidence <vendor-v2.jsonl> --run demo --matrix-generation <displayed-generation>
+rfp-matrix export --run demo --out <new-output> --matrix-generation <displayed> --request-id demo-export-1
+rfp-matrix update-evidence <vendor-v2.jsonl> --run demo --matrix-generation <displayed>
 rfp-matrix review --run demo --queue stale
 rfp-matrix verify-export <bundle>
 ```
 
-These commands are intended interfaces, not executed evidence. Runtime data defaults to a machine-local directory outside OneDrive; `--state-dir` precedes the subcommand. Source terms and hashes remain visible. JSONL vendor records use `{record_id, text, terms, fictional: true, source_url?}`; use fictional information only. The interactive reviewer asks separately before human validation. Similarity, provider confidence, an edit or a gap acknowledgment cannot create a positive commitment. Source/corpus changes invalidate approvals; old exports are historical.
+Commands are unexecuted intended interfaces. Vendor JSONL uses record_id, text,
+terms, fictional:true and optional source_url. No real vendor secrets or credentials
+belong in inputs. Use the exact displayed generation: edits and stale sources do
+not silently retain current approval. Similarity and model confidence are never
+approval; positive decisions and gap acknowledgments remain distinct. All unresolved
+rows stay visible in exports. Coverage/maintenance/provider CLI flags must follow
+the accepted CLI implementation. Current source exposes `coverage --run demo`,
+`coverage --run demo --interactive` (TUI V), `diagnostics --run demo`,
+`backup --out <new-bundle>` and `restore <bundle> --destination <new-local-state>`.
+Coverage inspection/reassessment uses exact displayed hashes/revisions, documented
+in the workflow; no maintenance command above has been run.
 
-[Workflow](docs/REVIEW-WORKFLOW.md) explains decisions, generation conflicts and source navigation. [Synthetic example](demo/README.md) describes an authored development-only fixture generator that has not run. [Development scoring](eval/README.md) documents the hand arithmetic oracle and explicit zero-denominator N/A behavior; no scoring run has been executed. [Comparison status](results/results.md) retains all four required arms as not yet measured.
+[Workflow](docs/REVIEW-WORKFLOW.md), [architecture](docs/ARCHITECTURE.md),
+[activation](docs/ACTIVATION.md) and the proposed [two-minute demo](docs/DEMO.md)
+explain the source paths and future checks. [Development scoring](eval/README.md),
+[comparison boundary](eval/RUNNER.md), [corpus workflow](eval/CORPUS-WORKFLOW.md) and
+[results](results/results.md) retain unmeasured status. The [synthetic example](demo/README.md)
+is authored development material and cannot discharge public-corpus/human-gold floors.
+The [four-arm adapters](eval/PIPELINE.md) use product producers with injected ports;
+the runner deliberately rejects live origin. Failure/miss IDs require explicit
+external disclosure authorization after prospective spent-set consumption.
 
-## Deferred validation and limits
+## Limits and pending validation
 
-This source was written by Codex agents and accepted from their focused static inspection and syntax reports. No unit, integration or end-to-end tests ran. Dependency ranges are provisional, with no resolved lockfile or installed compatibility evidence. Table/image/sparse-page coverage stays visibly incomplete; no human coverage-override workflow is implemented.
+Dependency pins and real parser/SQLite/checkpointer/provider compatibility remain
+unverified. Scans/OCR, autonomous commitments, proposal submission,
+cloud deployment and collaborative SaaS are outside this scope. Images, extraction
+errors and uncertain reading order cannot be cleared by a character-count shortcut.
+Human inspection is a source workflow, not proof of extraction completeness.
 
-After Dirty Mode closes: resolve/install compatible licensed dependencies, exercise actual PDF/SQLite/LangGraph/CLI/export paths, restart and concurrency failures, stale-generation races, pointer validity and injection controls. Before any live provider work, implement/admit the missing transport, pin exact SDK/model/license/price policy and authorize a budget; the current live budget is zero. Lawful public-PDF selection, human annotation/adjudication, independent sealed held-out custody, authorized live B0a/B0b/F1/F2 comparisons and independent nonauthoring acceptance remain required before quality claims. No API keys, paid calls, real vendor secrets or real accounts were used. Scans/OCR, browser UI, proposal submission, autonomous commitments, cloud deployment and legal advice are outside this construction scope.
+Lazy provider configuration/factories are source-only, explicitly gated and zero
+budget by default. A credential name or config hash grants no live authority.
+Confirmatory evaluation still needs lawful public families, staffed annotation and
+independent adjudication/custody, actual source/config/model/SDK/license/price seals,
+durable spent-set isolation, an admitted live comparison host and independent
+nonauthoring product acceptance. No private gold or CUSTODY file is supplied here.
+
+Later activation must exercise literal anchors, source/evidence invalidation,
+restart and concurrency failures, backup consistency, unsupported checkpoints,
+idempotency, generation races and deterministic exported artifacts. See the
+activation document for the bounded deferred list. No paid calls, real external
+accounts, deployments or publication were performed.
+
+## Optional browser reviewer
+
+The selected local browser reviewer now has source templates, CSS and backend/application/presentation seams. It has never been rendered or run. See [browser workflow](docs/BROWSER-REVIEW.md) for actual run-scoped routes/forms, optional web dependencies, trusted challenge delivery and future claimed-loopback activation. CLI/TUI remains the minimum workflow. No server or browser was started; no security/accessibility verification is claimed.
+
+CLI defaults to versioned JSON; use the global --output text for readable noninteractive output. Keyless --replay-tape requires matching disabled --provider-config and forbids --allow-live. No call or live budget is authorized.
+
+The source-only [amendment comparison](docs/AMENDMENTS.md) shows literal old/current
+requirements, lexical proposals, unmapped mandatory rows and separate human
+correspondence history. Exact-version lineage events never carry approval into
+a changed source/corpus generation. No amendment comparison or browser render
+has been executed. Private login delivery uses --private-login-delivery and must
+fail closed unless owner-only bootstrap-file privacy can be established; no
+secret terminal/log/URL output is permitted.
+
+## Inventory audit and prospective bounds
+
+The source-only [inventory audit](docs/INVENTORY-AUDIT.md) exposes retained,
+rejected, uncertain and unattributed machine candidates, structural gaps and
+separate human corrections. Promoting a registered candidate creates a pending
+row with no assessment/approval and never changes blind-method predictions.
+[Prospective envelopes](eval/ENVELOPES.md) integrate the canonical pure provider
+planner into v3 frozen receipts. Counts, tokens and Decimal price bounds are
+assumptions; unknown/disabled/partial states remain explicit. No planner, UI,
+comparison or evaluation was executed and no live budget is authorized.
+
+See [frozen build provenance](eval/BUILD-PROVENANCE.md) for full normalized semantic contexts, separate render identity, changed-pin refusal and explicit legacy limitations. Descriptors establish integrity only; runtime, security and quality remain unverified.

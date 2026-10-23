@@ -106,3 +106,33 @@ def noul_response():
             "answers": {key: {"type": "noul", "noul": 0.95} for key in questions},
             "usage": {"input_tokens": 20, "output_tokens": 10}}
     return make
+
+
+# Synthetic provenance only: no native source collector in provider fixtures.
+import copy
+from rfp_matrix import provenance as p
+from rfp_matrix.contracts import digest
+
+
+@pytest.fixture
+def collection(monkeypatch):
+    """Every fingerprint is synthetic, not evidence of execution or installed code."""
+    components = {}
+    for group, paths in p.GROUPS.items():
+        body = {"status": "available", "files": [
+            {"path": path, "kind": "python_ast" if path.endswith(".py") else "text_lf",
+             "status": "available", "sha256": "a" * 64, "reason": None}
+            for path in sorted(paths)], "dependencies": {
+                name: {"status": "unavailable", "version": None,
+                       "reason": "distribution_not_installed"} for name in p.LIBRARIES[group]}}
+        components[group] = {**body, "fingerprint": digest("m3.source-component.v1", body)}
+    state = {"identity": {"method": None, "parser_profile": None, "components": components,
+        "runtime": {"python_implementation": "CPython", "python_version": "3.12.0",
+                    "unicode_version": "15.0.0", "platform": "synthetic", "byteorder": "little",
+                    "canonical_policy": p.CANONICAL_POLICY}},
+        "modified": {group: [1] * len(paths) for group, paths in p.GROUPS.items()}, "started": 10}
+    monkeypatch.setattr(p, "_PINS", {})
+    monkeypatch.setattr(p, "_RESTART", set())
+    monkeypatch.setattr(p, "_collect", lambda: (copy.deepcopy(state["identity"]),
+        copy.deepcopy(state["modified"]), state["started"]))
+    return state

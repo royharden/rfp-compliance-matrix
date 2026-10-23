@@ -141,7 +141,7 @@ class CallLedger:
             committed = sum((_amount(r["actual_cost"] if r["actual_cost"] is not None else r["reservation"])
                              for r in db.execute("SELECT actual_cost,reservation FROM calls")), Decimal(0))
             scoped = sum((_amount(r["actual_cost"] if r["actual_cost"] is not None else r["reservation"])
-                          for r in db.execute("SELECT c.actual_cost,c.reservation FROM calls c JOIN dispatch_attempts a ON a.operation_key=c.operation_key JOIN dispatch_requests r ON r.request_hash=a.request_hash WHERE r.document_id=?", (document_id,))), Decimal(0))
+                          for r in db.execute("SELECT c.actual_cost,c.reservation FROM calls c LEFT JOIN dispatch_attempts a ON a.operation_key=c.operation_key LEFT JOIN dispatch_requests r ON r.request_hash=a.request_hash WHERE r.document_id=? OR a.operation_key IS NULL", (document_id,))), Decimal(0))
             if committed + total > self.budget or scoped + total > _amount(document_budget_usd):
                 raise M3Error("budget_exhausted", "Two-attempt worst-case reservation exceeds document/batch budget")
             now = datetime.now(timezone.utc).isoformat()
@@ -152,6 +152,25 @@ class CallLedger:
                     specification, str(per_attempt), None, "reserved", now))
                 db.execute("INSERT INTO dispatch_attempts VALUES (?,?,?,?,?,0,0)", (key, request_hash, attempt, max_input_tokens, max_output_tokens))
             return {"created": True, "reservation_usd": str(total), "receipt": None}
+
+    def budget_snapshot(self, document_id: str) -> dict[str, Any]:
+        """Explicit later runtime snapshot, never invoked by the pure estimator.
+
+        Opens/initializes the accounting schema through the normal ledger path.
+        Unknown charges count at retained reservation. This is an exact snapshot,
+        not a whole-run reservation; later shared-ledger traffic can change it.
+        """
+        if not isinstance(document_id, str) or not document_id or len(document_id) > 160:
+            raise M3Error("invalid_budget_scope", "A bounded document ID is required")
+        with self._transaction() as db:
+            all_rows = [dict(row) for row in db.execute("SELECT operation_key,reservation,actual_cost,status FROM calls ORDER BY operation_key")]
+            scoped = [dict(row) for row in db.execute("SELECT c.operation_key,c.reservation,c.actual_cost,c.status FROM calls c LEFT JOIN dispatch_attempts a ON a.operation_key=c.operation_key LEFT JOIN dispatch_requests r ON r.request_hash=a.request_hash WHERE r.document_id=? OR a.operation_key IS NULL ORDER BY c.operation_key", (document_id,))]
+        def upper(rows):
+            return sum((_amount(row["actual_cost"] if row["actual_cost"] is not None else row["reservation"]) for row in rows), Decimal(0))
+        return {"schema_version": 1, "document_id": document_id, "origin": self.origin,
+            "batch_committed_usd": str(upper(all_rows)), "document_committed_usd": str(upper(scoped)),
+            "ledger_snapshot_sha256": digest("m3.run-budget-snapshot.v1", {"origin": self.origin,
+                "document_id": document_id, "price_policy": self.price_policy, "batch": all_rows, "document": scoped})}
 
     def start_attempt(self, request_hash: str, attempt: int) -> bool:
         if type(attempt) is not int or attempt not in (0, 1):

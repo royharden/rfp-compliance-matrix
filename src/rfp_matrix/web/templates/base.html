@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>{% block title %}RFP review{% endblock %} · RFP matrix</title>
+  <link rel="stylesheet" href="/static/reviewer.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to main content</a>
+  <header class="site-header">
+    <a class="brand" href="/">RFP matrix <span>Local evidence review</span></a>
+    {% block session %}{% if csrf_token %}<form method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="secondary" type="submit">Sign out</button>
+    </form>{% endif %}{% endblock %}
+  </header>
+  <div class="construction" role="note">Construction source · Runtime unverified · Fictional vendor evidence</div>
+  <main id="main" tabindex="-1">{% block content %}{% endblock %}</main>
+  <footer>Evidence status and reviewer approval are separate. No legal compliance finding or vendor commitment.</footer>
+</body>
+</html>

@@ -29,3 +29,12 @@ require a ledger constructed with `origin="mock"`. Mock results have no live mod
 or actual charge. F2 labels are bool/null or registered Choice ID under
 `raw_classifications`, with `needs_review`, empty probability `answers` and explicit
 generated-label semantics. No downstream code should infer calibration from them.
+
+`test_envelope.py` adds eight function definitions with bounded parameterization:
+hand-computable bundled fanout/retries/token/Decimal cost, zero-call baseline,
+window truncation, unknown versus zero/replay cost, gross versus remaining budget,
+full-run budget failure, exact/resealed digest and prospective-record mismatch,
+wrong-method fake injection, strict counts and no-I/O estimator. The oracle
+3 candidates/2 current rows/top-k2 yields9 logical requests,18 maximum attempts,
+144000 input/18432 output tokens and0.180864USD at the explicitly synthetic1/2
+USD per-million rates. It is arithmetic, not measured usage or a real price.

@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% from '_parts.html' import warnings, pointer %}
+{% block title %}Inventory audit · {{ vm.run_id }}{% endblock %}
+{% block content %}
+<nav aria-label="Breadcrumb"><a href="/">Workspaces</a> / <a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}">{{ vm.run_id }}</a> / Inventory audit</nav>
+<p class="eyebrow">Immutable machine disposition · Separate human correction</p><h1>Requirement inventory audit</h1>
+<p class="warning">STRUCTURAL ATTRIBUTION ONLY — semantic recall is not assessed. Complete attribution or page coverage cannot establish that all requirements were found. Human promotions create PENDING rows and are excluded from blind-method predictions.</p>
+{{ warnings(vm.warnings) }}{{ warnings(vm.artifact_issues) }}
+{% if not vm.current %}<p class="warning">STALE / UNAVAILABLE audit identity. Promotion controls are disabled; inspect the current source and versions.</p>{% endif %}
+{% if vm.truncated %}<p class="warning">Audit display is truncated. Visible entries cannot establish a complete inventory.</p>{% endif %}
+<div class="summary"><span>Coverage: {{ 'complete under recorded policy' if vm.coverage_complete else 'UNRESOLVED' }}</span><span>Attribution: {{ 'complete under this registry' if vm.attribution_complete else 'INCOMPLETE' }}</span><span>Semantic recall: NOT ASSESSED</span></div>
+<dl class="identities"><dt>Artifact</dt><dd><code>{{ vm.artifact_sha }}</code></dd><dt>Machine report</dt><dd><code>{{ vm.inventory_report_sha }}</code></dd><dt>Audit</dt><dd><code>{{ vm.audit_sha }}</code></dd><dt>Registry</dt><dd><code>{{ vm.registry_sha }}</code></dd><dt>Inventory policy</dt><dd><code>{{ vm.inventory_policy_hash }}</code></dd><dt>Parser</dt><dd>{{ vm.parser }} {{ vm.parser_version }}</dd><dt>Normalizer</dt><dd>{{ vm.normalization_policy }}</dd>{% for key, value in vm.counts.items() %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+<nav class="toolbar" aria-label="Disposition sections">{% for name in ['retained','rejected','uncertain','unattributed'] %}<a href="#{{ name }}">{{ name|capitalize }} ({{ vm.tabs[name]|length }})</a>{% endfor %}<a href="#structural-gaps">Structural gaps</a><a href="#human-promotions">Human corrections</a></nav>
+{% set forms = namespace(sequence=0) %}
+{% for name in ['retained','rejected','uncertain','unattributed'] %}<section id="{{ name }}"><h2>{{ name|capitalize }} candidates</h2>
+{% for entry in vm.tabs[name] %}<article class="panel"><h3>{{ entry.candidate_id }} · {{ entry.disposition }}</h3><blockquote>{{ entry.literal_excerpt }}</blockquote>{% if entry.literal_truncated %}<p class="warning">Excerpt truncated; full registered original quote is below.</p>{% endif %}
+<p>{{ entry.reason }}</p><p class="meta">Original machine disposition {{ entry.machine_disposition }} · {{ entry.machine_reason }}</p>
+<p>Mandatory {{ 'yes' if entry.mandatory else 'no' }} · Conditional {{ 'yes' if entry.conditional else 'no' }} · Administrative {{ 'yes' if entry.administrative else 'no' }}</p>
+{{ warnings(entry.uncertainty) }}
+<details><summary>Original source quote, coordinates and identity</summary>{{ pointer(entry.anchor) }}</details>
+<p class="meta">Provider {{ entry.provider_status.origin }} · {{ entry.provider_status.model }} · Response {{ entry.provider_status.response_status }} · Consumer {{ entry.provider_status.consumer_status }}</p>
+{% if entry.provider_status.unavailable %}<p class="warning">Provider unavailable or unattributed. This is not intentional context exclusion or evidence that the clause is not a requirement.</p>{% endif %}<p>{{ entry.provider_status.reason }}</p>
+{% for row_id in entry.requirement_ids %}<p><a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/rows/{{ row_id|urlencode|replace('/', '%2F') }}">Open retained row {{ row_id }}</a></p>{% endfor %}
+{% if entry.already_promoted %}<p class="badge">A separate human-added atom already exists. Original machine audit remains unchanged.</p>{% endif %}
+{% if vm.current and vm.run_id and vm.controls.enabled and entry.eligible and entry.candidate_id in vm.controls.candidate_ids and csrf_token and request_id and vm.controls.expected_artifact_sha and vm.controls.expected_assessment_generation and vm.controls.expected_matrix_generation %}
+{% set forms.sequence = forms.sequence + 1 %}
+<form method="post" action="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/inventory/promote">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="request_id" value="{{ request_id }}-promote-{{ forms.sequence }}"><input type="hidden" name="candidate_id" value="{{ entry.candidate_id }}">
+<input type="hidden" name="expected_artifact_sha" value="{{ vm.controls.expected_artifact_sha }}"><input type="hidden" name="expected_assessment_generation" value="{{ vm.controls.expected_assessment_generation }}"><input type="hidden" name="expected_matrix_generation" value="{{ vm.controls.expected_matrix_generation }}">
+<fieldset><legend>Promote this registered candidate to PENDING review</legend><p>The original literal source and current policy are retained. Promotion performs no provider call, evidence assessment or approval. Interpretation/independent-flag overrides use the separately documented explicit CLI/service operation.</p>
+<label for="promotion-reason-{{ forms.sequence }}">Human reason for adding this requirement</label><textarea id="promotion-reason-{{ forms.sequence }}" name="reason" maxlength="4000" rows="3" required></textarea>
+<button type="submit">Add pending requirement — no approval</button></fieldset>
+</form>{% endif %}
+<details><summary>Structural segment identifiers</summary><ul>{% for segment_id in entry.segment_ids %}<li><code>{{ segment_id }}</code></li>{% else %}<li>No segment attribution supplied.</li>{% endfor %}</ul></details>
+</article>{% else %}<p>No candidates in this disposition. This does not establish that no requirements were missed.</p>{% endfor %}
+</section>{% endfor %}
+<section id="structural-gaps" class="panel"><h2>Unanchored structural gaps</h2><p>Unanchored table cells and unresolved reading order cannot be promoted as exact original spans.</p>{% for gap in vm.structural_gaps %}<article><h3>Page {{ gap.page_number }} · {{ gap.disposition }}</h3><blockquote>{{ gap.literal_excerpt }}</blockquote><p>{{ gap.reason }}</p>{% if gap.literal_truncated %}<p class="warning">Cell excerpt truncated.</p>{% endif %}</article>{% else %}<p>No structural gap entries supplied; semantic recall remains unassessed.</p>{% endfor %}
+<details><summary>Every structural segment disposition</summary>{% for segment in vm.segments %}<article><h3>{{ segment.kind }} · {{ segment.disposition }}</h3><p>{{ segment.reason }}</p><p class="meta">Page {{ segment.anchor.page_number }} · [{{ segment.anchor.start }}, {{ segment.anchor.end }}) · Candidates {{ segment.candidate_ids|join(', ') }}</p><blockquote>{{ segment.anchor.quote }}</blockquote></article>{% else %}<p>Structural segments unavailable.</p>{% endfor %}</details>
+</section>
+<section class="panel"><h2>All-page parser coverage</h2>{% for page in vm.page_coverage %}<p>Page {{ page.page_number }} · {{ page.coverage }} · <code>{{ page.text_sha }}</code></p>{{ warnings(page.issues) }}{% else %}<p class="warning">Page coverage unavailable.</p>{% endfor %}<a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/coverage">Open human coverage inspection</a></section>
+<section id="human-promotions" class="panel"><h2>Separate human correction history</h2>{% for event in vm.promotions %}<article><h3>{{ event.candidate_id }} → {{ event.row_id }}</h3><p>{{ event.actor }} · {{ event.created_at }} · Event {{ event.event_id }}</p><p class="literal">{{ event.reason }}</p><p>Human correction to pending review; not a blind method prediction, evidence assessment or positive approval.</p></article>{% else %}<p>No human promotion events supplied.</p>{% endfor %}</section>
+{% endblock %}

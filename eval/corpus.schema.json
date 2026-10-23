@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rfp-matrix:corpus-contract:v1",
+  "title": "Example public corpus intake contracts; no approved corpus",
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "id": {"type": "string", "minLength": 1, "maxLength": 160},
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "document_id", "raw_sha", "source_url", "source_version", "retrieved_at", "terms", "status", "evidence_sha", "evidence_version", "actor", "reason", "intended_use", "previous_revision", "revision"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "document_id": {"$ref": "#/$defs/id"},
+        "raw_sha": {"$ref": "#/$defs/sha"},
+        "source_url": {"type": "string", "minLength": 1},
+        "source_version": {"type": "string", "minLength": 1},
+        "retrieved_at": {"type": "string", "minLength": 1},
+        "terms": {"type": "string", "minLength": 1},
+        "status": {"enum": ["pending", "verified", "excluded"]},
+        "evidence_sha": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]},
+        "evidence_version": {"type": ["string", "null"]},
+        "actor": {"$ref": "#/$defs/id"},
+        "reason": {"type": "string", "minLength": 1},
+        "intended_use": {"type": "string", "minLength": 1},
+        "previous_revision": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]},
+        "revision": {"$ref": "#/$defs/sha"}
+      },
+      "allOf": [{"if": {"properties": {"status": {"const": "verified"}}}, "then": {"properties": {"evidence_sha": {"$ref": "#/$defs/sha"}, "evidence_version": {"type": "string", "minLength": 1}}}}]
+    },
+    "publicFamilyRecord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "raw_sha", "text", "issuer", "template", "declared_family", "split"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "raw_sha": {"$ref": "#/$defs/sha"},
+        "text": {"type": "string", "minLength": 1, "maxLength": 2000000},
+        "issuer": {"$ref": "#/$defs/id"}, "template": {"$ref": "#/$defs/id"},
+        "declared_family": {"$ref": "#/$defs/id"}, "split": {"enum": ["dev", "heldout"]}
+      }
+    },
+    "anchor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["page_id", "start", "end", "quote", "excerpt_sha"],
+      "properties": {
+        "page_id": {"$ref": "#/$defs/id"}, "start": {"type": "integer", "minimum": 0},
+        "end": {"type": "integer", "minimum": 1}, "quote": {"type": "string", "minLength": 1},
+        "excerpt_sha": {"$ref": "#/$defs/sha"}
+      }
+    },
+    "atom": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "parent_id", "child_ids", "anchors", "mandatory", "conditional", "administrative", "condition", "applicability", "status", "support_ids", "counterevidence_ids", "adjudicated"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "parent_id": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "child_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "anchors": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"$ref": "#/$defs/anchor"}},
+        "mandatory": {"type": "boolean"}, "conditional": {"type": "boolean"}, "administrative": {"type": "boolean"},
+        "condition": {"type": ["string", "null"]}, "applicability": {"enum": ["applies", "unknown", "not_applies"]},
+        "status": {"enum": ["supported", "partial", "cannot_answer_absent", "cannot_answer_conflicting"]},
+        "support_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "counterevidence_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "adjudicated": {"type": "boolean"}
+      }
+    },
+    "disagreement": {
+      "type": "object", "additionalProperties": false,
+      "required": ["atom_id", "field", "first_label_sha", "second_label_sha", "resolution_sha", "reason"],
+      "properties": {
+        "atom_id": {"$ref": "#/$defs/id"}, "field": {"enum": ["atomicity", "mandatory", "conditional", "administrative", "applicability", "evidence"]},
+        "first_label_sha": {"$ref": "#/$defs/sha"}, "second_label_sha": {"$ref": "#/$defs/sha"},
+        "resolution_sha": {"anyOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]}, "reason": {"type": "string"}
+      }
+    },
+    "annotation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "split", "document_id", "family_id", "source_sha", "artifact_sha", "source_pages_sha", "evidence_sha", "annotator", "adjudicator", "annotation_version", "atoms", "disagreements"],
+      "properties": {
+        "schema_version": {"const": 1}, "split": {"enum": ["dev", "heldout"]},
+        "document_id": {"$ref": "#/$defs/id"}, "family_id": {"$ref": "#/$defs/id"},
+        "source_sha": {"$ref": "#/$defs/sha"}, "artifact_sha": {"$ref": "#/$defs/sha"},
+        "source_pages_sha": {"$ref": "#/$defs/sha"}, "evidence_sha": {"$ref": "#/$defs/sha"},
+        "annotator": {"$ref": "#/$defs/id"}, "adjudicator": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "annotation_version": {"$ref": "#/$defs/id"},
+        "atoms": {"type": "array", "minItems": 1, "maxItems": 2000, "items": {"$ref": "#/$defs/atom"}},
+        "disagreements": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/$defs/disagreement"}}
+      }
+    }
+  },
+  "oneOf": [{"$ref": "#/$defs/rights"}, {"$ref": "#/$defs/publicFamilyRecord"}, {"$ref": "#/$defs/annotation"}]
+}

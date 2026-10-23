@@ -10,6 +10,12 @@ from rfp_matrix.providers import (build_questions, replay_identity, make_replay_
     write_replay_tape, load_replay_tape, provider_diagnostics)
 
 
+@pytest.fixture(autouse=True)
+def synthetic_source_context(collection):
+    """No real collector/native metadata when these tests eventually run."""
+    return collection
+
+
 def authored(config, state, questions):
     identity = replay_identity(state, questions, config=config)
     result = {"status": "ok", "origin": "mock", "model": None, "sdk_version": None,

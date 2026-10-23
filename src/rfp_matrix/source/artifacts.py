@@ -13,10 +13,14 @@ import os
 from pathlib import Path
 import re
 import socket
+import unicodedata
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Sequence
 
 from rfp_matrix.contracts import M3Error, NORMALIZATION_POLICY, canonical_json, digest, raw_sha256, validate_record
+from .policy import policy_context, policy_status, policy_identity
+
+UNICODE_NORMALIZATION_POLICY = f"m3-nfkd-casefold-whitespace-{unicodedata.unidata_version}-v2"
 
 
 @dataclass(frozen=True)
@@ -31,7 +35,12 @@ class ParsePolicy:
 
 
 def _policy(policy: ParsePolicy | Mapping[str, Any] | None) -> ParsePolicy:
-    result = policy if isinstance(policy, ParsePolicy) else ParsePolicy(**dict(policy or {}))
+    try:
+        result = policy if isinstance(policy, ParsePolicy) else ParsePolicy(**dict(policy or {}))
+    except (TypeError, ValueError) as exc:
+        raise M3Error("invalid_policy", "Unknown or malformed parser policy") from exc
+    if any(type(value) is not int for value in asdict(result).values()) or not 1 <= result.sparse_floor <= 1000:
+        raise M3Error("invalid_policy", "Parser caps must be bounded integers; sparse floor is a warning only")
     if not (0 < result.max_bytes <= 20 * 1024 * 1024 and 0 < result.max_pages <= 100):
         raise M3Error("invalid_policy", "PDF policy cannot exceed application caps")
     if not (0 < result.max_text_codepoints <= 2_000_000 and 0 < result.timeout_seconds <= 60):
@@ -41,23 +50,49 @@ def _policy(policy: ParsePolicy | Mapping[str, Any] | None) -> ParsePolicy:
     return result
 
 
-def normalize_with_alignment(text: str) -> tuple[str, list[list[int]]]:
-    """Casefold/collapse whitespace; each normalized codepoint maps to [a,b)."""
+def normalize_with_alignment(text: str, *, policy: str = NORMALIZATION_POLICY) -> tuple[str, list[list[int]]]:
+    """Each output codepoint maps to an interval in the immutable original.
+
+    Legacy v1 is preserved. V2 compatibility-decomposes and casefolds Unicode,
+    canonically orders combining marks, then collapses whitespace. Reordered
+    marks can have nonmonotonic intervals; callers must use min/max, not endpoints.
+    """
+    if policy not in {NORMALIZATION_POLICY, UNICODE_NORMALIZATION_POLICY}:
+        raise M3Error("unsupported_normalization", "Unknown Unicode/alignment policy; re-extract explicitly")
+    units: list[tuple[str, int, int]] = []
+    for index, character in enumerate(text):
+        expanded = character.casefold() if policy == NORMALIZATION_POLICY else unicodedata.normalize(
+            "NFKD", unicodedata.normalize("NFKD", character).casefold())
+        for item in expanded:
+            units.append((item, index, index + 1))
+    if policy == UNICODE_NORMALIZATION_POLICY:
+        # Stable sorting each combining sequence avoids quadratic insertion on
+        # hostile pages consisting of very long combining-mark sequences.
+        ordered: list[tuple[str, int, int]] = []
+        marks: list[tuple[str, int, int]] = []
+        for unit in units:
+            if unicodedata.combining(unit[0]):
+                marks.append(unit)
+            else:
+                ordered.extend(sorted(marks, key=lambda item: unicodedata.combining(item[0])))
+                marks.clear()
+                ordered.append(unit)
+        ordered.extend(sorted(marks, key=lambda item: unicodedata.combining(item[0])))
+        units = ordered
     characters: list[str] = []
     intervals: list[list[int]] = []
     pending_space: list[int] | None = None
-    for index, character in enumerate(text):
+    for character, start, end in units:
         if character.isspace():
             if characters:
-                pending_space = [pending_space[0], index + 1] if pending_space else [index, index + 1]
+                pending_space = [min(pending_space[0], start), max(pending_space[1], end)] if pending_space else [start, end]
             continue
         if pending_space:
             characters.append(" ")
             intervals.append(pending_space)
             pending_space = None
-        for expanded in character.casefold():
-            characters.append(expanded)
-            intervals.append([index, index + 1])
+        characters.append(character)
+        intervals.append([start, end])
     return "".join(characters), intervals
 
 
@@ -80,7 +115,7 @@ def _page(text: str, index: int, policy: ParsePolicy, *, issues: list[str] | Non
         issues.append("native_text_sparse" if count else "no_native_text")
     if "image_content_requires_inspection" in issues or "extraction_error" in issues:
         coverage = "unsupported"
-    normalized, alignment = normalize_with_alignment(text)
+    normalized, alignment = normalize_with_alignment(text, policy=UNICODE_NORMALIZATION_POLICY)
     return {"schema_version": 1, "page_index": index, "text": text,
             "text_sha": raw_sha256(text.encode("utf-8")), "coverage": coverage,
             "issues": sorted(set(issues)), "sections": _sections(text, index), "tables": tables or [],
@@ -93,9 +128,14 @@ def _artifact(source: dict[str, Any], pages: list[dict[str, Any]], *, parser: st
         raise M3Error("page_limit", "PDF must contain between one and the maximum permitted pages")
     if sum(len(page["text"]) for page in pages) > policy.max_text_codepoints:
         raise M3Error("text_limit", "Extracted text exceeds application limit; no partial artifact accepted")
+    semantic = policy_context("B0a", {"parser": parser, "parser_version": parser_version,
+                                     "normalization_policy": UNICODE_NORMALIZATION_POLICY})
+    provenance = {"schema_version": 1, "policy_profile": "m3-artifact-policy-v3", "parse_config": asdict(policy), "semantic": semantic}
     value = {"schema_version": 1, "source": source, "parser": parser,
-             "parser_version": parser_version, "policy_hash": digest("m3.parse-policy.v1", asdict(policy)),
-             "normalization_policy": NORMALIZATION_POLICY, "pages": pages,
+             "parser_version": parser_version, "policy_hash": digest("m3.parse-policy.v3", {
+                 "parse_config": asdict(policy), "semantic_identity": policy_identity(semantic)}),
+             "policy_provenance": provenance,
+             "normalization_policy": UNICODE_NORMALIZATION_POLICY, "pages": pages,
              "complete": all(page["coverage"] == "ok" and not page["issues"] for page in pages),
              "issues": list(issues or [])}
     value["artifact_sha"] = digest("m3.document-artifact.v1", value)
@@ -193,11 +233,15 @@ def _parse_worker(connection: Any, raw: bytes, policy_data: dict[str, Any]) -> N
                         issues.append("broken_text_layer")
                     extracted_tables = page.extract_tables() or []
                     if extracted_tables:
+                        if len(extracted_tables) > 100:
+                            raise M3Error("table_limit", "Table extraction exceeds page structure cap")
                         tables = extracted_tables[:100]
                         issues.append("table_reading_order_requires_inspection")
                     # Reading order heuristic is deliberately a warning, not certification.
-                    if any(len(re.findall(r"\S\s{4,}\S", line)) > 1 for line in text.splitlines()):
+                    if any(re.search(r"\S[^\S\n]{4,}\S", line) for line in text.splitlines()):
                         issues.append("possible_columns_require_inspection")
+                except M3Error:
+                    raise
                 except Exception:
                     text = ""
                     issues.append("extraction_error")
@@ -236,9 +280,15 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None,
     context = multiprocessing.get_context("spawn")
     reader, writer = context.Pipe(duplex=False)
     worker = context.Process(target=_parse_worker, args=(writer, raw, asdict(rules)), daemon=True)
-    worker.start()
-    writer.close()
+    started = False
     try:
+        try:
+            worker.start()
+            started = True
+        except (OSError, RuntimeError) as exc:
+            raise M3Error("parser_unavailable", "Cannot start bounded parser child") from exc
+        finally:
+            writer.close()
         if not reader.poll(rules.timeout_seconds):
             raise M3Error("parser_timeout", "PDF parser exceeded bounded deadline")
         try:
@@ -247,23 +297,33 @@ def parse_pdf(path: str | Path, *, source_id: str | None = None,
             raise M3Error("parser_failure", "PDF child failed or exceeded output limit") from exc
     finally:
         reader.close()
-        worker.join(timeout=1)
-        if worker.is_alive():
+        if started:
+            worker.join(timeout=1)
+        if started and worker.is_alive():
             worker.terminate()
             worker.join(timeout=2)
-        if worker.is_alive():
+        if started and worker.is_alive():
             worker.kill()
             worker.join(timeout=1)
+        if started and worker.is_alive():
+            raise M3Error("parser_cleanup_failed", "Parser child could not be stopped; do not retry automatically")
+    if not isinstance(result, dict) or type(result.get("ok")) is not bool:
+        raise M3Error("parser_failure", "Parser child returned an invalid envelope")
     if not result["ok"]:
-        raise M3Error(result["code"], result["message"])
+        raise M3Error(str(result.get("code", "parser_failure")), str(result.get("message", "PDF parser failed")))
+    if (set(result) != {"ok", "pages", "version"} or not isinstance(result["pages"], list)
+            or not isinstance(result["version"], str) or not result["version"]):
+        raise M3Error("parser_failure", "Parser child result is incomplete")
     source = {"schema_version": 1, "source_id": source_id or f"rfp-{raw_hash[:16]}",
               "raw_sha": raw_hash, "terms": terms, "source_url": source_url, "retrieved_at": None,
               "fictional": fictional, "rights_status": "pending", "media_type": "application/pdf"}
     return _artifact(source, result["pages"], parser="pdfplumber-native", parser_version=result["version"], policy=rules)
 
 
-def _verify_artifact(artifact: Mapping[str, Any]) -> dict[str, Any]:
+def _verify_artifact(artifact: Mapping[str, Any], *, historical: bool = False) -> dict[str, Any]:
     value = validate_record("artifact", artifact)
+    if sum(len(page["text"]) for page in value["pages"]) > 2_000_000:
+        raise M3Error("text_limit", "Immutable artifact exceeds total original-text cap")
     content = dict(value)
     expected = content.pop("artifact_sha")
     if digest("m3.document-artifact.v1", content) != expected:
@@ -271,28 +331,76 @@ def _verify_artifact(artifact: Mapping[str, Any]) -> dict[str, Any]:
     for index, page in enumerate(value["pages"]):
         if page["page_index"] != index or raw_sha256(page["text"].encode("utf-8")) != page["text_sha"]:
             raise M3Error("artifact_corrupt", "Page index or original text digest mismatch")
-        normalized, alignment = normalize_with_alignment(page["text"])
-        if normalized != page["normalized_text"] or alignment != page["alignment"]:
-            raise M3Error("artifact_corrupt", "Normalization alignment mismatch")
+        if len(page["normalized_text"]) != len(page["alignment"]) or any(
+            len(interval) != 2 or any(type(offset) is not int for offset in interval)
+            or not 0 <= interval[0] < interval[1] <= len(page["text"]) for interval in page["alignment"]):
+            raise M3Error("artifact_corrupt", "Stored normalization coordinates are malformed")
+        if not historical:
+            normalized, alignment = normalize_with_alignment(page["text"], policy=value["normalization_policy"])
+            if normalized != page["normalized_text"] or alignment != page["alignment"]:
+                raise M3Error("artifact_corrupt", "Normalization alignment mismatch")
+        identifiers: set[str] = set()
+        last_start = -1
+        last_end = 0
+        for section in page["sections"]:
+            if (section["section_id"] in identifiers or
+                    not 0 <= section["start"] < section["end"] <= len(page["text"]) or
+                    section["start"] < last_start or
+                    section["start"] < last_end or
+                    not page["text"][section["start"]:section["end"]].startswith(section["title"])):
+                raise M3Error("artifact_corrupt", "Section is not bound to original heading coordinates")
+            identifiers.add(section["section_id"])
+            last_start = section["start"]
+            last_end = section["end"]
     coverage_complete = all(page["coverage"] == "ok" and not page["issues"] for page in value["pages"])
     if value["complete"] != coverage_complete:
         raise M3Error("artifact_corrupt", "Complete-coverage flag contradicts per-page inspection state")
     return value
 
 
-def validate_artifact(artifact: Mapping[str, Any]) -> dict[str, Any]:
+def validate_artifact(artifact: Mapping[str, Any], *, allow_historical: bool = False) -> dict[str, Any]:
     """Validate wire, content identity, page digests and original alignment."""
-    return _verify_artifact(artifact)
+    return _verify_artifact(artifact, historical=allow_historical)
+
+
+def artifact_policy_status(artifact: Mapping[str, Any], *, current_context: Mapping[str, Any]) -> dict[str, Any]:
+    """Pure integrity/currentness guard; caller explicitly collects current context."""
+    value = _verify_artifact(artifact, historical=True)
+    provenance = value.get("policy_provenance")
+    status = policy_status(provenance, current_context)
+    expected_profile = {"parser": value["parser"], "parser_version": value["parser_version"],
+                        "normalization_policy": value["normalization_policy"]}
+    semantic_record = provenance.get("semantic") if isinstance(provenance, Mapping) else None
+    if isinstance(provenance, Mapping) and (not isinstance(semantic_record, Mapping) or semantic_record.get("parser_profile") != expected_profile):
+        return {**status, "status": "mismatch", "allows_current_claim": False,
+                "reasons": ["Recorded parser provenance does not describe this immutable artifact profile."], "action": "reimport_or_reassess"}
+    if isinstance(provenance, Mapping) and provenance.get("policy_profile") != "m3-artifact-policy-v3":
+        return {**status, "status": "legacy", "allows_current_claim": False,
+                "reasons": ["Recorded parser policy uses a historical identity profile; reimport explicitly."], "action": "reimport_or_reassess"}
+    if isinstance(provenance, Mapping) and digest("m3.parse-policy.v3", {"parse_config": provenance.get("parse_config"),
+            "semantic_identity": policy_identity(semantic_record)}) != value["policy_hash"]:
+        return {**status, "status": "mismatch", "allows_current_claim": False,
+                "reasons": ["Stored parser policy identity does not bind its recorded provenance."], "action": "reimport_or_reassess"}
+    return status
 
 
 def make_anchor(artifact: Mapping[str, Any], page_index: int, start: int, end: int,
                 *, section_id: str | None = None) -> dict[str, Any]:
-    if not isinstance(page_index, int) or page_index < 0 or page_index >= len(artifact["pages"]):
+    if type(page_index) is not int or page_index < 0 or page_index >= len(artifact["pages"]):
         raise M3Error("invalid_anchor", "Unknown page index")
     text = artifact["pages"][page_index]["text"]
-    if not 0 <= start < end <= len(text):
+    if type(start) is not int or type(end) is not int or not 0 <= start < end <= len(text):
         raise M3Error("invalid_anchor", "Anchor exceeds original page text")
     quote = text[start:end]
+    if section_id is not None:
+        section = next((s for s in artifact["pages"][page_index]["sections"]
+                        if s["section_id"] == section_id and s["start"] <= start < s["end"]), None)
+        if section is None:
+            raise M3Error("invalid_anchor", "Named section does not contain the span start")
+        if end > section["end"]:
+            # Paragraph consumers can span a heading boundary. Keep exact literal
+            # coordinates, but do not label the entire span as one section.
+            section_id = None
     return validate_record("anchor", {"schema_version": 1, "source_id": artifact["source"]["source_id"],
         "source_sha": artifact["source"]["raw_sha"], "artifact_sha": artifact["artifact_sha"],
         "page_index": page_index, "start": start, "end": end, "quote": quote,
@@ -301,7 +409,7 @@ def make_anchor(artifact: Mapping[str, Any], page_index: int, start: int, end: i
 
 
 def resolve_anchor(artifact: Mapping[str, Any], anchor: Mapping[str, Any]) -> dict[str, Any]:
-    source = _verify_artifact(artifact)
+    source = _verify_artifact(artifact, historical=True)
     pointer = validate_record("anchor", anchor)
     if (pointer["source_id"] != source["source"]["source_id"] or
         pointer["source_sha"] != source["source"]["raw_sha"] or
@@ -315,6 +423,8 @@ def resolve_anchor(artifact: Mapping[str, Any], anchor: Mapping[str, Any]) -> di
     start, end = pointer["start"], pointer["end"]
     if end > len(page["text"]) or page["text"][start:end] != pointer["quote"]:
         raise M3Error("invalid_anchor", "Literal quote does not roundtrip at original coordinates")
+    # Legacy v1 anchors labelled sections by start only; preserve their history.
+    # New make_anchor drops a section label when the span crosses its boundary.
     if pointer["section_id"] is not None and not any(s["section_id"] == pointer["section_id"] and s["start"] <= start < s["end"] for s in page["sections"]):
         raise M3Error("invalid_anchor", "Section does not contain the original span")
     return {"quote": pointer["quote"], "context": page["text"][max(0, start - 180):min(len(page["text"]), end + 180)],
@@ -380,7 +490,7 @@ class SourceRegistry:
         if path.stat().st_size > 64 * 1024 * 1024:
             raise M3Error("artifact_corrupt", "Artifact exceeds registry size cap")
         try:
-            value = _verify_artifact(json.loads(path.read_text(encoding="utf-8")))
+            value = _verify_artifact(json.loads(path.read_text(encoding="utf-8")), historical=True)
         except (OSError, ValueError) as exc:
             if isinstance(exc, M3Error):
                 raise

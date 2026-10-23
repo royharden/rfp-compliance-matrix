@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% from '_parts.html' import warnings, changes, policy_warning %}
+{% block title %}Matrix · {{ vm.run_id }}{% endblock %}
+{% block content %}
+<nav aria-label="Breadcrumb"><a href="/">Workspaces</a> / {{ vm.run_id }}</nav>
+<p class="eyebrow">Fictional vendor evidence</p><h1>Review matrix</h1>
+<p>{{ vm.notice }}</p>
+{% if vm.historical %}<p class="warning">HISTORICAL VIEW — current approval cannot be established here.</p>{% endif %}
+{{ warnings(vm.warnings) }}
+<div class="toolbar"><a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/inventory">Inventory audit</a><a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/coverage">Inspect coverage</a><a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/amendments">Compare amendments</a><a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/exports">Export history</a></div>
+<dl class="identities"><dt>Matrix generation</dt><dd><code>{{ vm.matrix_generation }}</code></dd><dt>Assessment generation</dt><dd><code>{{ vm.assessment_generation }}</code></dd></dl>
+<div class="summary"><strong>{{ vm.counts.total }} total</strong><span>{{ vm.counts.visible }} visible</span><span>{{ vm.counts.unresolved }} unresolved</span><span>Coverage: {{ 'complete' if vm.coverage.complete else 'UNRESOLVED' }}</span></div>
+<form method="get" action="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}" class="toolbar">
+  <label for="queue">Review queue</label><select id="queue" name="queue">{% for name in ['all','unresolved','pending','approved_positive','approved_gap','rejected','stale','retired','deferred','not_applies'] %}<option value="{{ name }}"{% if vm.queue == name %} selected{% endif %}>{{ name }}</option>{% endfor %}</select><button class="secondary" type="submit">Show queue</button>
+</form>
+{% if vm.rows %}<div class="table-scroll" role="region" aria-label="Requirement matrix" tabindex="0"><table>
+<caption>All selected inventory rows. Evidence status does not imply approval. Open a row for full source and context.</caption>
+<thead><tr><th scope="col">Requirement / source</th><th scope="col">Independent flags</th><th scope="col">Applicability</th><th scope="col">Evidence</th><th scope="col">Draft / approved answer</th><th scope="col">Review and lineage</th></tr></thead>
+<tbody>{% for item in vm.rows %}<tr>
+<th scope="row"><a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/rows/{{ item.row.row_id|urlencode|replace('/', '%2F') }}">{{ item.row.row_id }}</a><p class="literal">{{ item.requirement.literal_clause }}</p>{% for p in item.requirement.anchors %}<p class="meta">Page {{ p.page_number }} · [{{ p.start }}, {{ p.end }}) · {{ p.section_id }}</p>{% endfor %}{% if item.text_truncated %}<p class="badge">Excerpt truncated — open full row</p>{% endif %}</th>
+<td>Mandatory: {{ 'yes' if item.requirement.mandatory else 'no' }}<br>Conditional: {{ 'yes' if item.requirement.conditional else 'no' }}<br>Administrative: {{ 'yes' if item.requirement.administrative else 'no' }}</td>
+<td>{{ item.requirement.applicability }}<p>{{ item.requirement.condition }}</p></td>
+<td><strong>{{ item.evidence.status }}</strong><p>{{ item.evidence.reason }}</p><p class="meta">{{ item.evidence.method }} · {{ item.evidence.origin }} · {{ item.evidence.model }}</p><h3>Support</h3>{% for p in item.evidence.support %}<blockquote>{{ p.quote }}</blockquote><p class="meta">{{ p.record_id }} · {{ p.sentence_id }}</p>{% else %}<p>No support selected.</p>{% endfor %}<h3>Counterevidence</h3>{% for p in item.evidence.counterevidence %}<blockquote>{{ p.quote }}</blockquote><p class="meta">{{ p.record_id }} · {{ p.sentence_id }}</p>{% else %}<p>No counterevidence selected; this is not proof of absence.</p>{% endfor %}</td>
+<td>{% if item.row.approved_answer is not none %}<span class="badge">Current validated positive</span><p class="literal">{{ item.row.approved_answer }}</p>{% else %}<strong>NO CURRENT APPROVED COMMITMENT</strong><p class="literal">Draft: {{ item.row.answer_text }}</p>{% endif %}{% if item.row.gap_acknowledged %}<p class="badge">Gap acknowledged — no positive commitment</p>{% endif %}{% if item.notes.text %}<details><summary>Unvalidated note</summary><p>{{ item.notes.text }}</p><p>Excluded from approved answer.</p></details>{% endif %}</td>
+<td><span class="badge">{{ item.row.label }}</span><p>{{ item.row.invalidation_reason }}</p><p class="meta">Event {{ item.row.decision_event_id }} · {{ item.row.decision_actor }} · {{ item.row.decision_time }}</p><p class="meta">Parent {{ item.lineage.parent_id }} · Children {{ item.lineage.child_ids|join(', ') }}</p>{{ warnings(item.warnings) }}{{ policy_warning(item.policy_status|default({}, true)) }}</td>
+</tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty"><h2>No rows in this queue</h2><p>Showing {{ vm.queue }}. Select all rows to inspect the full available inventory; an empty queue does not establish compliance.</p></div>{% endif %}
+{% if not vm.historical and vm.matrix_generation and csrf_token %}<section class="panel"><h2>Export the current matrix</h2><p>Includes all unresolved rows and exact decision lineage. Export does not approve a row.</p><form method="post" action="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/export"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="request_id" value="{{ request_id }}"><input type="hidden" name="expected_matrix_generation" value="{{ vm.matrix_generation }}"><input type="hidden" name="formats" value="html,csv,md"><button type="submit">Prepare HTML, CSV and Markdown</button></form></section>{% endif %}
+{{ changes(vm.changes) }}
+{% endblock %}

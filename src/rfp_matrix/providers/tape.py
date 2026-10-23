@@ -36,7 +36,7 @@ def _hash(value: Any) -> str:
 
 
 def replay_identity(state: Mapping[str, Any], questions: Mapping[str, Any], *,
-                    config: ProviderConfig) -> dict[str, Any]:
+                    config: ProviderConfig, semantic_provenance: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Caller supplies code-owned questions and exact artifact/corpus bindings.
 
     State and full question contents are hashed, never stored in the tape.
@@ -46,9 +46,16 @@ def replay_identity(state: Mapping[str, Any], questions: Mapping[str, Any], *,
     validate_questions(questions)
     _hash(config.source_sha256)
     _hash(config.corpus_sha256)
+    from rfp_matrix.provenance import semantic_policy_fingerprint, verify_fingerprint_descriptor, SEMANTIC_PROFILE
+    semantic = semantic_provenance if semantic_provenance is not None else semantic_policy_fingerprint(config.method)
+    if (not verify_fingerprint_descriptor(semantic, profile=SEMANTIC_PROFILE) or semantic["status"] != "available"
+            or semantic["identity"]["method"] != config.method):
+        raise M3Error("replay_semantic_policy_unavailable", "Current semantic source or process context is unavailable")
+    if config.semantic_fingerprint and config.semantic_fingerprint != semantic["fingerprint"]:
+        raise M3Error("replay_semantic_policy_mismatch", "Replay config differs from current source policy")
     shapes = {key: {"type": question["type"], "criteria": list(question["criteria"]) if question["type"] == "choice" else []}
               for key, question in questions.items()}
-    value = {"schema_version": 1, "method": config.method,
+    value = {"schema_version": 2, "method": config.method, "semantic_fingerprint": semantic["fingerprint"],
         "state_sha256": digest("m3.replay-state.v1", dict(state)),
         "questions_sha256": digest("m3.replay-questions.v1", dict(questions)),
         "candidate_sha256": digest("m3.replay-candidates.v1", shapes), "question_shapes": shapes,
@@ -58,17 +65,20 @@ def replay_identity(state: Mapping[str, Any], questions: Mapping[str, Any], *,
             "price_provenance": config.price_provenance}),
         "question_policy": config.question_policy, "source_policy": config.source_policy,
         "source_sha256": config.source_sha256, "corpus_sha256": config.corpus_sha256}
-    value["request_sha256"] = digest("m3.portable-replay-request.v1", value)
+    value["request_sha256"] = digest("m3.portable-replay-request.v2", value)
     return _identity(value)
 
 
 def _identity(value: Any) -> dict[str, Any]:
-    result = _object(value, IDENTITY_FIELDS)
-    if type(result["schema_version"]) is not int or result["schema_version"] != 1 or result["method"] not in {"B0b", "F1", "F2"}:
+    version = value.get("schema_version") if isinstance(value, Mapping) else None
+    result = _object(value, IDENTITY_FIELDS | ({"semantic_fingerprint"} if version == 2 else set()))
+    if type(result["schema_version"]) is not int or result["schema_version"] not in {1, 2} or result["method"] not in {"B0b", "F1", "F2"}:
         raise M3Error("replay_schema", "Unsupported replay identity version/method")
     for name in ["state_sha256", "questions_sha256", "candidate_sha256", "provenance_sha256",
                  "source_sha256", "corpus_sha256", "request_sha256"]:
         _hash(result[name])
+    if version == 2:
+        _hash(result["semantic_fingerprint"])
     for name in ["model", "sdk_name", "sdk_version", "question_policy", "source_policy"]:
         if not isinstance(result[name], str) or not 1 <= len(result[name]) <= 200:
             raise M3Error("replay_identity", "Invalid model/SDK/policy identity")
@@ -87,7 +97,7 @@ def _identity(value: Any) -> dict[str, Any]:
     if result["candidate_sha256"] != digest("m3.replay-candidates.v1", shapes):
         raise M3Error("replay_integrity", "Replay candidate digest mismatch")
     body = {k: v for k, v in result.items() if k != "request_sha256"}
-    if result["request_sha256"] != digest("m3.portable-replay-request.v1", body):
+    if result["request_sha256"] != digest("m3.portable-replay-request.v2" if version == 2 else "m3.portable-replay-request.v1", body):
         raise M3Error("replay_integrity", "Replay request digest mismatch")
     return json.loads(canonical_json(result))
 
@@ -108,6 +118,8 @@ def _safe_result(value: Mapping[str, Any], identity: Mapping[str, Any], kind: st
     expected_origin = {"captured_live": "live", "authored_mock": "mock"}.get(kind)
     if expected_origin is None or value.get("origin") != expected_origin:
         raise M3Error("replay_origin", "Replay cannot be relabelled as captured live or authored mock")
+    if identity["schema_version"] == 2 and kind == "captured_live" and value.get("semantic_fingerprint") != identity["semantic_fingerprint"]:
+        raise M3Error("replay_semantic_policy_mismatch", "A captured result cannot be rebound to new source code")
     status = value.get("status")
     if status not in {"ok", "needs_review", "unavailable"}:
         raise M3Error("replay_schema", "Unsupported recorded status")
@@ -159,11 +171,14 @@ def _safe_result(value: Mapping[str, Any], identity: Mapping[str, Any], kind: st
     if kind == "authored_mock" and actual is not None:
         raise M3Error("replay_origin", "Mock cannot assert an observed charge")
     semantics = "generated-closed-labels-no-probabilities" if identity["method"] == "F2" else "provider-reported-typesafe" if kind == "captured_live" else "authored-mock-distribution"
-    return {"schema_version": 1, "status": status, "origin": expected_origin, "code": code,
+    result = {"schema_version": 1, "status": status, "origin": expected_origin, "code": code,
         "model": model, "sdk_version": sdk, "answers": answers,
         "raw_classifications": labels, "usage": usage, "actual_cost_usd": actual,
         "simulated_cost_usd": simulated, "cost_status": "known" if actual is not None else "unknown",
         "distribution_semantics": semantics}
+    if identity["schema_version"] == 2:
+        result["semantic_fingerprint"] = identity["semantic_fingerprint"]
+    return result
 
 
 def make_replay_record(identity: Mapping[str, Any], result: Mapping[str, Any], *, record_kind: str) -> dict[str, Any]:
@@ -185,7 +200,9 @@ def _record(value: Any) -> dict[str, Any]:
     record = _object(value, {"schema_version", "record_kind", "identity", "result", "record_sha256"})
     if type(record["schema_version"]) is not int or record["schema_version"] != 1:
         raise M3Error("replay_schema", "Unsupported record version")
-    _object(record["result"], RESULT_FIELDS)
+    checked_identity = _identity(record["identity"])
+    fields = RESULT_FIELDS | ({"semantic_fingerprint"} if checked_identity["schema_version"] == 2 else set())
+    _object(record["result"], fields)
     checked = make_replay_record(record["identity"], record["result"], record_kind=record["record_kind"])
     if checked != record:
         raise M3Error("replay_integrity", "Replay record hash or sanitized fields differ")
@@ -240,12 +257,19 @@ class FileReplayProvider:
         self.config = config
         self._records = {r["identity"]["request_sha256"]: r for r in _records(records)}
 
+    def policy_history(self) -> list[dict[str, Any]]:
+        """Bounded inspection only; old records are never silently rekeyed."""
+        return [{"record_sha256": r["record_sha256"], "identity_schema_version": r["identity"]["schema_version"],
+            "semantic_fingerprint": r["identity"].get("semantic_fingerprint"),
+            "record_kind": r["record_kind"], "original_origin": r["result"]["origin"],
+            "allows_current_claim": False, "authenticity": "not_verified"} for r in self._records.values()]
+
     def judge(self, state: Mapping[str, Any], questions: Mapping[str, Any]) -> dict[str, Any]:
         try:
             identity = replay_identity(state, questions, config=self.config)
             record = self._records.get(identity["request_sha256"])
             if record is None:
-                return unavailable("replay_request_not_found", model=self.config.model)
+                return unavailable("replay_policy_legacy_or_request_not_found" if any(r["identity"]["schema_version"] == 1 for r in self._records.values()) else "replay_request_not_found", model=self.config.model)
             checked = _record(record)
             result = dict(checked["result"])
             result.update(origin="replay", original_origin=checked["result"]["origin"],

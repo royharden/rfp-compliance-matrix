@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Review unavailable{% endblock %}
+{% block content %}
+<section class="panel error" role="alert"><p class="eyebrow">No successful decision inferred</p><h1>Review action unavailable</h1>
+<p>Code: <code>{{ vm.code|default('unavailable') }}</code>{% if vm.http_status|default(none) %} · HTTP {{ vm.http_status }}{% endif %}</p>
+<p>The request may be pending, conflicting, stale, unsupported or unavailable. Refresh the current workspace and inspect its revisions before retrying. A changed request must use its new displayed identity.</p>
+<p>No approval or export success is established by this page. Authentication errors do not sign you in.</p>
+<div class="toolbar"><a href="/">Return to authorized workspaces</a><a href="/login">Sign in again</a></div>
+</section>
+{% endblock %}

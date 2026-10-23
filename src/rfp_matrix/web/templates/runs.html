@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% from '_parts.html' import warnings %}
+{% block title %}Review workspaces{% endblock %}
+{% block content %}
+<p class="eyebrow">Local review</p><h1>Your review workspaces</h1>
+<p>Import permitted PDFs and fictional vendor evidence through the CLI. This page shows runs authorized for this reviewer session.</p>
+{{ warnings(vm.warnings|default([])) }}
+{% if vm.runs %}<div class="workspace-grid">{% for run in vm.runs %}<article class="panel">
+  <h2><a href="/runs/{{ run.run_id|urlencode|replace('/', '%2F') }}">{{ run.run_id }}</a></h2>
+  <p>Source: {{ run.source_id|default('unavailable', true) }}</p>
+  <p>{% if run.row_count is defined and run.row_count is not none %}{{ run.row_count }}{% else %}Unknown{% endif %} inventory rows · Fictional vendor</p>
+  <details><summary>Version identity</summary><code>{{ run.matrix_generation|default('unavailable', true) }}</code></details>
+</article>{% endfor %}</div>{% else %}<div class="empty"><h2>No authorized runs</h2><p>No local review workspace is available in this session. Import using the CLI or check the session's authorized run list.</p></div>{% endif %}
+{% if vm.truncated|default(false) %}<p class="warning">Run list truncated. Additional runs are not displayed.</p>{% endif %}
+{% endblock %}

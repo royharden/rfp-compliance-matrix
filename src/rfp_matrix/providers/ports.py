@@ -99,33 +99,51 @@ class DisabledProvider:
 class MockProvider:
     """Explicit caller-supplied development decisions; no fabricated live scores."""
 
-    def __init__(self, responses: Mapping[str, Mapping[str, Any]], *, requested_model: str = MODEL) -> None:
+    def __init__(self, responses: Mapping[str, Mapping[str, Any]], *, requested_model: str = MODEL,
+                 method: str = "F1", semantic_fingerprint: str | None = None) -> None:
         self.responses = dict(responses)
         self.requested_model = requested_model
+        self.method, self.semantic_fingerprint = method, semantic_fingerprint
 
     def judge(self, state: Mapping[str, Any], questions: Mapping[str, Any]) -> dict[str, Any]:
-        key = digest("m3.judgment-request.v1", {"state": dict(state), "questions": dict(questions), "model": self.requested_model, "question_policy": QUESTION_POLICY})
+        if not self.semantic_fingerprint:
+            return unavailable("mock_semantic_policy_legacy", model=self.requested_model)
+        from rfp_matrix.provenance import semantic_policy_fingerprint
+        current = semantic_policy_fingerprint(self.method)
+        if current["status"] != "available" or current["fingerprint"] != self.semantic_fingerprint:
+            return unavailable("mock_semantic_policy_restart_required" if current["restart_required"] else "mock_semantic_policy_mismatch", model=self.requested_model)
+        key = digest("m3.judgment-request.v2", {"state": dict(state), "questions": dict(questions), "model": self.requested_model,
+            "method": self.method, "semantic_fingerprint": self.semantic_fingerprint, "question_policy": QUESTION_POLICY})
         response = self.responses.get(key)
         if response is None:
             return unavailable("No labelled mock for the exact request", model=self.requested_model)
         value = dict(response)
         value.update({"schema_version": 1, "status": "ok", "origin": "mock", "requested_model": self.requested_model,
                       "model": None, "sdk_version": None, "usage": None, "actual_cost_usd": None,
-                      "request_hash": key, "question_policy": QUESTION_POLICY})
+                      "request_hash": key, "question_policy": QUESTION_POLICY, "semantic_fingerprint": self.semantic_fingerprint})
         return validate_judgment(value, questions)
 
 
 class ReplayProvider:
     """Replay exact requests only; preserve original provenance and usage."""
 
-    def __init__(self, receipts: Mapping[str, Mapping[str, Any]], *, requested_model: str = MODEL) -> None:
+    def __init__(self, receipts: Mapping[str, Mapping[str, Any]], *, requested_model: str = MODEL,
+                 method: str = "F1", semantic_fingerprint: str | None = None) -> None:
         self.receipts = dict(receipts)
         self.requested_model = requested_model
+        self.method, self.semantic_fingerprint = method, semantic_fingerprint
 
     def judge(self, state: Mapping[str, Any], questions: Mapping[str, Any]) -> dict[str, Any]:
-        key = digest("m3.judgment-request.v1", {"state": dict(state), "questions": dict(questions), "model": self.requested_model, "question_policy": QUESTION_POLICY})
+        if not self.semantic_fingerprint:
+            return unavailable("replay_semantic_policy_legacy", model=self.requested_model)
+        from rfp_matrix.provenance import semantic_policy_fingerprint
+        current = semantic_policy_fingerprint(self.method)
+        if current["status"] != "available" or current["fingerprint"] != self.semantic_fingerprint:
+            return unavailable("replay_semantic_policy_restart_required" if current["restart_required"] else "replay_semantic_policy_mismatch", model=self.requested_model)
+        key = digest("m3.judgment-request.v2", {"state": dict(state), "questions": dict(questions), "model": self.requested_model,
+            "method": self.method, "semantic_fingerprint": self.semantic_fingerprint, "question_policy": QUESTION_POLICY})
         source = self.receipts.get(key)
-        if source is None or source.get("request_hash") != key:
+        if source is None or source.get("request_hash") != key or source.get("semantic_fingerprint") != self.semantic_fingerprint:
             return unavailable("No replay receipt matches the exact source/policy/model request", model=self.requested_model)
         result = dict(source)
         result.update({"origin": "replay", "original_origin": source.get("origin"),

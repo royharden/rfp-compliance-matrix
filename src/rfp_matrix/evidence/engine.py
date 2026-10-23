@@ -9,11 +9,12 @@ import re
 from typing import Any, Iterable, Mapping
 
 from rfp_matrix.contracts import (
-    ASSESSMENT_POLICY, INVENTORY_POLICY, M3Error, canonical_json, digest,
+    INVENTORY_POLICY, M3Error, canonical_json, digest,
     raw_sha256, validate_record,
 )
-from rfp_matrix.providers import DisabledProvider, build_questions, validate_judgment
-from rfp_matrix.source import make_anchor, resolve_anchor, validate_artifact
+from rfp_matrix.providers import build_questions
+from rfp_matrix.source import make_anchor, policy_context, policy_identity, policy_status, resolve_anchor, validate_artifact
+from .consumer import ENGINE_POLICY, assessment_generation, assessment_policy, call_judgment, check_provider_sources, judgment_port, provider_identity
 
 METHODS = {"B0a", "B0b", "F1", "F2"}
 _MODAL = re.compile(r"\b(shall|must|required|requires|mandatory|submit|submission|deadline|due|provide|include)\b", re.I)
@@ -80,19 +81,26 @@ def _segments(text: str) -> Iterable[tuple[int, int]]:
                 yield left, right
 
 
-def inventory_report(artifact: Mapping[str, Any], *, method: str = "B0a", provider: Any = None) -> dict[str, Any]:
+def inventory_report(artifact: Mapping[str, Any], *, method: str = "B0a", provider: Any = None,
+                     _semantic_context: Mapping[str, Any] | None = None) -> dict[str, Any]:
     _method(method)
     source = validate_artifact(artifact)
-    policy_hash = digest("m3.inventory-policy.v1", {"policy": INVENTORY_POLICY, "method": method, "typed_threshold": 0.9})
+    judgment_provider = judgment_port(provider, method)
+    check_provider_sources(judgment_provider, artifact=source)
+    semantic = dict(_semantic_context) if _semantic_context is not None else policy_context(method)
+    policy_hash = digest("m3.inventory-policy.v4", {"policy": INVENTORY_POLICY, "method": method,
+        "typed_threshold": 0.9, "provider": provider_identity(judgment_provider, method), "semantic_identity": policy_identity(semantic)})
     requirements: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
-    judgment_port = provider or DisabledProvider(method)
     for page in source["pages"]:
         for start, end in _segments(page["text"]):
+            if len(requirements) + len(rejected) >= 2000:
+                raise M3Error("requirement_limit", "Inventory exceeds 2,000 candidates; no partial audit accepted")
             literal = page["text"][start:end]
             section_id = next((s["section_id"] for s in page["sections"] if s["start"] <= start < s["end"]), None)
             anchor = make_anchor(source, page["page_index"], start, end, section_id=section_id)
+            resolve_anchor(source, anchor)
             modal = bool(_MODAL.search(literal))
             mandatory = bool(re.search(r"\b(shall|must|required|mandatory)\b", literal, re.I))
             conditional, administrative = bool(_CONDITION.search(literal)), bool(_ADMIN.search(literal))
@@ -105,16 +113,28 @@ def inventory_report(artifact: Mapping[str, Any], *, method: str = "B0a", provid
                 uncertainty.append("page_requires_inspection")
             if method != "B0a":
                 questions = build_questions("inventory")
-                state = {"clause": literal, "context": page["text"][max(0, start - 200):min(len(page["text"]), end + 200)], "anchor": anchor}
-                try:
-                    if len(canonical_json({"state": state, "questions": questions}).encode("utf-8")) + 1024 > 8000:
-                        outcome = {"status": "unavailable", "origin": "unavailable", "reason": "request_input_bound_exceeded"}
-                    else:
-                        outcome = validate_judgment(judgment_port.judge(state, questions), questions)
-                except (ValueError, TypeError, AttributeError) as exc:
-                    outcome = {"status": "unavailable", "origin": "unavailable", "reason": str(exc)}
-                decisions.append({"anchor": anchor, "outcome": outcome})
-                if outcome.get("status") != "ok":
+                state = {"clause": literal, "context": page["text"][max(0, start - 200):min(len(page["text"]), end + 200)],
+                         "anchor": anchor, "artifact_sha": source["artifact_sha"], "source_sha": source["source"]["raw_sha"],
+                         "normalization_policy": source["normalization_policy"]}
+                outcome = call_judgment(judgment_provider, state, questions, method=method)
+                decisions.append({"anchor": anchor, "outcome": outcome["raw"], "consumer_status": outcome["status"]})
+                if outcome["status"] == "labels":
+                    labels = outcome["labels"]
+                    # F2 makes the same closed decisions without counterfeit scores.
+                    # Unknown requirement status retains the candidate for review.
+                    if modal and labels["requirement"] is False:
+                        uncertainty.append("classification_disagrees_with_source_signal")
+                    modal = modal or labels["requirement"] is not False
+                    for key in ("requirement", "mandatory", "conditional", "administrative", "atomic"):
+                        if labels[key] is None:
+                            uncertainty.append(f"uncertain_{key}")
+                    mandatory = mandatory or labels["mandatory"] is True
+                    conditional = conditional or labels["conditional"] is True
+                    administrative = administrative or labels["administrative"] is True
+                    uncertainty.append("f2_uncalibrated_classification")
+                    if labels["atomic"] is not True:
+                        uncertainty.append("uncertain_atomic_split")
+                elif outcome["status"] != "ok":
                     uncertainty.append("inventory_provider_unavailable")
                     # Keep uncertain context too: unavailable classification is
                     # never permission to discard a potentially hidden obligation.
@@ -122,19 +142,22 @@ def inventory_report(artifact: Mapping[str, Any], *, method: str = "B0a", provid
                 else:
                     answers = outcome["answers"]
                     p_req = answers["requirement"]["noul"]
-                    modal = p_req >= 0.1
+                    if modal and p_req < 0.1:
+                        uncertainty.append("classification_disagrees_with_source_signal")
+                    modal = modal or p_req >= 0.1
                     if 0.1 <= p_req < 0.9:
                         uncertainty.append("uncertain_requirement_classification")
-                    mandatory = answers["mandatory"]["noul"] >= 0.9
-                    conditional = answers["conditional"]["noul"] >= 0.9
-                    administrative = answers["administrative"]["noul"] >= 0.9
+                    mandatory = mandatory or answers["mandatory"]["noul"] >= 0.9
+                    conditional = conditional or answers["conditional"]["noul"] >= 0.9
+                    administrative = administrative or answers["administrative"]["noul"] >= 0.9
                     for key in ("mandatory", "conditional", "administrative"):
                         if 0.1 < answers[key]["noul"] < 0.9:
                             uncertainty.append(f"uncertain_{key}")
                     if answers["atomic"]["noul"] < 0.9:
                         uncertainty.append("uncertain_atomic_split")
             if not modal:
-                rejected.append({"anchor": anchor, "reason": "no_structural_modal_or_submission_signal" if method == "B0a" else "typed_non_requirement", "method": method})
+                rejected.append({"anchor": anchor, "reason": "no_structural_modal_or_submission_signal" if method == "B0a" else "typed_non_requirement",
+                                 "method": method, "uncertainty": sorted(set(uncertainty))})
                 continue
             requirement_id = "R-" + digest("m3.requirement-id.v1", {"source_id": source["source"]["source_id"], "page": page["page_index"], "start": start, "end": end})[:16]
             value: dict[str, Any] = {"schema_version": 1, "requirement_id": requirement_id, "parent_id": None, "child_ids": [],
@@ -144,15 +167,61 @@ def inventory_report(artifact: Mapping[str, Any], *, method: str = "B0a", provid
                 "uncertainty": sorted(set(uncertainty)), "policy_hash": policy_hash, "method": method}
             value["revision"] = digest("m3.requirement-revision.v1", value)
             requirements.append(validate_record("requirement", value))
-            if len(requirements) > 2000:
+            if len(requirements) + len(rejected) > 2000:
                 raise M3Error("requirement_limit", "Inventory exceeds 2,000 candidates; no partial result accepted")
     return {"schema_version": 1, "artifact_sha": source["artifact_sha"], "requirements": requirements,
-            "rejected_candidates": rejected, "judgments": decisions, "complete": source["complete"],
-            "method": method, "policy_hash": policy_hash}
+            "rejected_candidates": rejected, "judgments": decisions,
+            "complete": source["complete"] and all(item["consumer_status"] == "ok" for item in decisions),
+            "method": method, "policy_hash": policy_hash, "policy_provenance": semantic}
 
 
 def inventory_requirements(artifact: Mapping[str, Any], *, method: str = "B0a", provider: Any = None) -> list[dict[str, Any]]:
     return inventory_report(artifact, method=method, provider=provider)["requirements"]
+
+
+def registered_source_candidates(artifact: Mapping[str, Any]) -> dict[str, Any]:
+    """All preclassification candidates, including context later rejected; no port."""
+    source = validate_artifact(artifact)
+    candidates = []
+    for page in source["pages"]:
+        for start, end in _segments(page["text"]):
+            if len(candidates) >= 2000:
+                raise M3Error("requirement_limit", "Candidate freeze exceeds 2,000; no partial registry")
+            literal = page["text"][start:end]
+            section = next((s["section_id"] for s in page["sections"] if s["start"] <= start < s["end"]), None)
+            anchor = make_anchor(source, page["page_index"], start, end, section_id=section)
+            resolve_anchor(source, anchor)
+            identity = "R-" + digest("m3.requirement-id.v1", {"source_id": source["source"]["source_id"],
+                "page": page["page_index"], "start": start, "end": end})[:16]
+            candidates.append({"candidate_id": identity, "anchor": anchor, "literal_clause": literal,
+                "structural_signal": bool(_MODAL.search(literal)),
+                "mandatory": bool(re.search(r"\b(shall|must|required|mandatory)\b", literal, re.I)),
+                "conditional": bool(_CONDITION.search(literal)), "administrative": bool(_ADMIN.search(literal)),
+                "uncertainty": sorted(set(page["issues"] + ([] if source["complete"] else ["source_coverage_incomplete"])) )})
+    content = {"schema_version": 1, "artifact_sha": source["artifact_sha"], "policy": INVENTORY_POLICY,
+               "policy_provenance": policy_context("B0a"),
+               "candidates": candidates, "complete": source["complete"], "classification_applied": False}
+    return {**content, "registry_sha": digest("m3.registered-source-candidates.v1", content)}
+
+
+def registered_evidence_windows(corpus: Mapping[str, Any]) -> dict[str, Any]:
+    """Freeze all original registered sentence/windows before method calls."""
+    source = _verify_corpus(corpus)
+    windows = []
+    for record in source["records"]:
+        for window in _windows(record):
+            if len(windows) >= 20000:
+                raise M3Error("window_limit", "Evidence freeze exceeds 20,000 windows; no partial registry")
+            pointer = _pointer(source, record, window)
+            # _windows/_pointer produce registered original intervals; corpus was
+            # already verified. Avoid a full corpus rehash per frozen window.
+            if record["text"][pointer["start"]:pointer["end"]] != pointer["quote"]:
+                raise M3Error("invalid_evidence", "Registered window literal mismatch")
+            windows.append({"record_id": record["record_id"], **window, "pointer": pointer})
+    content = {"schema_version": 1, "corpus_generation": source["generation"],
+               "policy": "m3-original-sentence-adjacent-windows-v1", "policy_provenance": policy_context("B0a"), "windows": windows,
+               "complete": source["complete"]}
+    return {**content, "registry_sha": digest("m3.registered-evidence-windows.v1", content)}
 
 
 def make_corpus(records: Iterable[Mapping[str, Any]], *, complete: bool = True) -> dict[str, Any]:
@@ -179,7 +248,8 @@ def make_corpus(records: Iterable[Mapping[str, Any]], *, complete: bool = True) 
         if len(items) > 200 or sum(len(r["text"].encode("utf-8")) for r in items) > 2 * 1024 * 1024:
             raise M3Error("corpus_limit", "Vendor corpus exceeds 200 records / 2 MiB text")
     items.sort(key=lambda item: item["record_id"])
-    policy_hash = digest("m3.corpus-policy.v1", {"parser": "plain-text-v1", "fictional_only": True})
+    policy_hash = digest("m3.corpus-policy.v3", {"parser": "plain-text-v1", "fictional_only": True,
+                                               "semantic_identity": policy_identity(policy_context("B0a"))})
     content = {"schema_version": 1, "records": items, "complete": complete, "fictional": True,
                "issues": [] if complete else ["corpus_coverage_incomplete"], "policy_hash": policy_hash}
     content["generation"] = digest("m3.corpus-generation.v1", content)
@@ -208,6 +278,8 @@ def _verify_corpus(corpus: Mapping[str, Any]) -> dict[str, Any]:
     expected = content.pop("generation")
     if digest("m3.corpus-generation.v1", content) != expected:
         raise M3Error("corpus_corrupt", "Corpus generation does not match immutable content")
+    if sum(len(record["text"].encode("utf-8")) for record in value["records"]) > 2 * 1024 * 1024:
+        raise M3Error("corpus_limit", "Immutable corpus exceeds the application text cap")
     seen: set[str] = set()
     for record in value["records"]:
         sha = raw_sha256(record["text"].encode("utf-8"))
@@ -246,7 +318,7 @@ def _pointer(corpus: Mapping[str, Any], record: Mapping[str, Any], window: Mappi
         "excerpt_sha": raw_sha256(quote.encode("utf-8")), "broad_fallback": window["broad_fallback"]})
 
 
-def resolve_evidence(corpus: Mapping[str, Any], anchor: Mapping[str, Any]) -> dict[str, Any]:
+def resolve_evidence(corpus: Mapping[str, Any], anchor: Mapping[str, Any], *, allow_historical: bool = False) -> dict[str, Any]:
     source = _verify_corpus(corpus)
     pointer = validate_record("evidence_pointer", anchor)
     if pointer["corpus_generation"] != source["generation"]:
@@ -259,17 +331,25 @@ def resolve_evidence(corpus: Mapping[str, Any], anchor: Mapping[str, Any]) -> di
     start, end = pointer["start"], pointer["end"]
     if not 0 <= start < end <= len(record["text"]) or record["text"][start:end] != pointer["quote"] or raw_sha256(pointer["quote"].encode("utf-8")) != pointer["excerpt_sha"]:
         raise M3Error("invalid_evidence", "Vendor quote does not resolve literally at original coordinates")
-    registered = next((w for w in _windows(record) if w["sentence_id"] == pointer["sentence_id"]), None)
-    if registered is None or registered["start"] != start or registered["end"] != end or registered["broad_fallback"] != pointer["broad_fallback"]:
-        raise M3Error("invalid_evidence", "Sentence/window was not registered")
+    if allow_historical:
+        if pointer["sentence_id"] != f"{record['record_id']}:{start}:{end}":
+            raise M3Error("invalid_evidence", "Historical sentence ID is not bound to original registered coordinates")
+    else:
+        registered = next((w for w in _windows(record) if w["sentence_id"] == pointer["sentence_id"]), None)
+        if registered is None or registered["start"] != start or registered["end"] != end or registered["broad_fallback"] != pointer["broad_fallback"]:
+            raise M3Error("invalid_evidence", "Sentence/window was not registered")
     return {"quote": pointer["quote"], "context": record["text"][max(0, start - 180):min(len(record["text"]), end + 180)],
-            "record_id": record["record_id"], "start": start, "end": end}
+            "record_id": record["record_id"], "start": start, "end": end,
+            "resolution_mode": "historical_literal_only" if allow_historical else "current_registered_window",
+            "semantic_currentness": "not_checked"}
 
 
-def retrieve_evidence(requirement: Mapping[str, Any], corpus: Mapping[str, Any], *, k: int = 10) -> dict[str, Any]:
-    if not 1 <= k <= 10:
+def retrieve_evidence(requirement: Mapping[str, Any], corpus: Mapping[str, Any], *, k: int = 10,
+                      _semantic_context: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    if type(k) is not int or not 1 <= k <= 10:
         raise M3Error("candidate_limit", "BM25 candidate cap is 10")
     source = _verify_corpus(corpus)
+    semantic = dict(_semantic_context) if _semantic_context is not None else policy_context("B0a")
     query = _tokens(requirement["interpretation"])
     records = source["records"]
     terms = [_tokens(record["text"]) for record in records]
@@ -293,6 +373,8 @@ def retrieve_evidence(requirement: Mapping[str, Any], corpus: Mapping[str, Any],
         row["rank"] = rank
     return {"schema_version": 1, "corpus_generation": source["generation"], "candidates": result,
             "complete": source["complete"], "retrieval_policy": "m3-bm25-k10-v1",
+            "policy_hash": digest("m3.retrieval-policy.v3", {"k": k, "algorithm": "m3-bm25-k10-v1", "semantic_identity": policy_identity(semantic)}),
+            "policy_provenance": semantic,
             "indexed_records": len(records), "truncated_candidates": max(0, len(candidates) - k)}
 
 
@@ -312,103 +394,115 @@ def _rule_relation(requirement: Mapping[str, Any], quote: str) -> str:
     return "partial"
 
 
-def assess_requirement(requirement: Mapping[str, Any], corpus: Mapping[str, Any], *, method: str = "B0a", provider: Any = None) -> dict[str, Any]:
+def assess_requirement(requirement: Mapping[str, Any], corpus: Mapping[str, Any], *, method: str = "B0a", provider: Any = None,
+                       _semantic_context: Mapping[str, Any] | None = None) -> dict[str, Any]:
     _method(method)
     req, source = validate_record("requirement", requirement), _verify_corpus(corpus)
-    retrieved = retrieve_evidence(req, source)
-    port = provider or DisabledProvider(method)
+    port = judgment_port(provider, method)
+    semantic = dict(_semantic_context) if _semantic_context is not None else policy_context(method)
+    retrieved = retrieve_evidence(req, source, _semantic_context=semantic)
+    check_provider_sources(port, corpus=source, requirement=req)
     support: list[dict[str, Any]] = []
     counter: list[dict[str, Any]] = []
     partial = False
-    incomplete = not source["complete"] or bool(req["uncertainty"])
-    judgments = []
+    incomplete = (not source["complete"] or bool(req["uncertainty"]) or bool(retrieved["truncated_candidates"])
+                  or req["applicability"] == "unknown" or req["method"] != method)
+    judgments: list[dict[str, Any]] = []
     origins: set[str] = set()
     model = None
     usages: list[dict[str, Any]] = []
+    # Every method keeps original-coordinate, registered-window candidates.
     for candidate in retrieved["candidates"]:
         record = next(r for r in source["records"] if r["record_id"] == candidate["record_id"])
         if method in {"B0a", "B0b"}:
             origins.add("baseline")
-            # Prefer a narrow sentence; include windows only where needed.
             related = [(window, _rule_relation(req, window["quote"])) for window in candidate["windows"]]
-            conflicting = [(window, relation) for window, relation in related if relation == "contradicts"]
-            supporting = [(window, relation) for window, relation in related if relation == "supports"]
-            for matches, target in ((conflicting, counter), (supporting, support)):
+            for relation, target in (("contradicts", counter), ("supports", support), ("partial", support)):
+                matches = [window for window, result in related if result == relation]
                 if matches:
-                    window, relation = min(matches, key=lambda item: (item[0]["broad_fallback"], item[0]["end"] - item[0]["start"], item[0]["start"]))
-                    target.append(_pointer(source, record, window))
-                    judgments.append({"record_id": record["record_id"], "relation": relation, "origin": "baseline", "sentence_id": window["sentence_id"], "probabilities": None})
+                    window = min(matches, key=lambda item: (item["broad_fallback"], item["end"] - item["start"], item["start"]))
+                    pointer = _pointer(source, record, window)
+                    resolve_evidence(source, pointer)
+                    target.append(pointer)
+                    judgments.append({"record_id": record["record_id"], "relation": relation,
+                        "origin": "baseline", "sentence_id": window["sentence_id"], "probabilities": None})
             partial |= any(relation == "partial" for _, relation in related)
+            incomplete |= any(relation == "unknown" for _, relation in related)
             continue
         windows = candidate["windows"]
         if len(windows) > 254:
             windows = windows[:254]
             incomplete = True
         questions = build_questions("evidence", [window["sentence_id"] for window in windows])
+        # Resolve every offered literal before semantic judgment; state carries the
+        # exact source/corpus/policy identities used in dispatch/cache identity.
+        for window in windows:
+            resolve_evidence(source, _pointer(source, record, window))
         state = {"requirement": req["interpretation"], "condition": req["condition"],
-                 "vendor_context": record["text"], "registered_windows": windows}
-        # Bytes plus conservative overhead bound the request before any port call.
-        if len(canonical_json({"state": state, "questions": questions}).encode("utf-8")) + 1024 > 8000:
-            incomplete = True
-            origins.add("unavailable")
-            judgments.append({"record_id": record["record_id"], "status": "unavailable", "reason": "request_input_bound_exceeded"})
-            continue
-        try:
-            outcome = validate_judgment(port.judge(state, questions), questions)
-        except (ValueError, TypeError, AttributeError) as exc:
-            outcome = {"status": "unavailable", "origin": "unavailable", "reason": str(exc)}
-        judgments.append({"record_id": record["record_id"], "outcome": outcome})
-        origins.add(outcome.get("origin", "unavailable"))
-        if outcome.get("status") != "ok":
-            incomplete = True
-            continue
-        model = outcome.get("model")
-        if outcome.get("usage") is not None:
-            usages.append(outcome["usage"])
-        relation, selection = outcome["answers"]["relation"], outcome["answers"]["selection"]
-        window = next((w for w in windows if w["sentence_id"] == selection["choice"]), None)
-        if relation["confidence"] < 0.9 or selection["confidence"] < 0.9:
-            if relation["choice"] == "contradicts" and window is not None:
-                counter.append(_pointer(source, record, window))
+            "requirement_revision": req["revision"], "requirement_anchors": req["anchors"],
+            "corpus_generation": source["generation"], "vendor_context": record["text"],
+            "record_id": record["record_id"], "record_sha": record["raw_sha"],
+            "registered_windows": windows, "engine_policy": ENGINE_POLICY}
+        outcome = call_judgment(port, state, questions, method=method)
+        raw = outcome["raw"]
+        judgments.append({"record_id": record["record_id"], "outcome": raw,
+                          "consumer_status": outcome["status"], "consumer_reason": outcome.get("reason")})
+        raw_origin = raw.get("origin", "unavailable")
+        origins.add(raw_origin if raw_origin in {"mock", "replay", "live"} else "unavailable")
+        # Usage is retained for unsuccessful/malformed requests too, never only successes.
+        if raw.get("usage") is not None:
+            usages.append({"record_id": record["record_id"], "origin": raw_origin, "usage": raw["usage"],
+                           "accounting": raw.get("accounting"), "cost_status": raw.get("cost_status", "unknown"),
+                           "request_hash": raw.get("request_hash")})
+        model = raw.get("model") or model
+        if outcome["status"] == "unavailable":
             incomplete = True
             continue
-        if relation["choice"] in {"supports", "contradicts", "partial"} and window is None:
+        if outcome["status"] == "labels":
+            relation, selection = outcome["labels"]["relation"], outcome["labels"]["selection"]
+            incomplete = True  # Closed generated labels have no calibrated confidence.
+            confident = False
+        else:
+            relation_answer, selected = outcome["answers"]["relation"], outcome["answers"]["selection"]
+            relation, selection = relation_answer["choice"], selected["choice"]
+            confident = relation_answer["confidence"] >= 0.9 and selected["confidence"] >= 0.9
+        window = next((item for item in windows if item["sentence_id"] == selection), None)
+        if relation in {"supports", "contradicts", "partial"} and window is None:
             incomplete = True
             continue
-        if relation["choice"] == "supports":
-            support.append(_pointer(source, record, window))
-        elif relation["choice"] == "contradicts":
-            counter.append(_pointer(source, record, window))
-        elif relation["choice"] == "partial":
-            partial = True
-        elif relation["choice"] == "unknown":
+        if window is not None and relation in {"supports", "contradicts", "partial"}:
+            pointer = _pointer(source, record, window)
+            resolve_evidence(source, pointer)
+            if relation == "contradicts":
+                counter.append(pointer)  # Never suppress credible counterevidence.
+            elif confident or outcome["status"] == "labels":
+                support.append(pointer)
+            if relation == "partial":
+                partial = True
+        if not confident or relation == "unknown":
             incomplete = True
     if method in {"F1", "F2"} and not retrieved["candidates"]:
-        # No live/cached assessment occurred; do not relabel provider absence as a
-        # complete semantic absence assessment, even with an empty index.
         incomplete = True
         origins.add("unavailable")
-    for pointer in support + counter:
-        resolve_evidence(source, pointer)
-    if incomplete:
-        status, reason = "needs_review", "Source/corpus coverage, inventory classification or typed assessment is incomplete"
-    elif counter:
-        status, reason = "cannot_answer_conflicting", "Conflicting evidence found in the fictional corpus; human assessment required"
+    if counter:
+        status, reason = "cannot_answer_conflicting", "Conflicting evidence found; incomplete context, if any, remains unresolved"
+    elif incomplete:
+        status, reason = "needs_review", "Source/corpus coverage, inventory, retrieval or model assessment is incomplete or uncalibrated"
+    elif partial:
+        status, reason = "partial", "Evidence addresses only part of the requirement; resolve or split before positive approval"
     elif support:
         status, reason = "supported", "Restricted evidence template drafted; explicit human assessment is still required"
-    elif support or partial:
-        status, reason = "partial", "Only partial evidence found; resolve or split before positive approval"
     else:
         status, reason = "cannot_answer_absent", "No supporting evidence found in this corpus; this is not proof of vendor incapability"
-    origin = "unavailable" if "unavailable" in origins else ("mock" if "mock" in origins else ("replay" if "replay" in origins else ("live" if "live" in origins else "baseline")))
+    origin = next((item for item in ("unavailable", "mock", "replay", "live", "baseline") if item in origins), "baseline")
     value = {"schema_version": 1, "requirement_id": req["requirement_id"], "requirement_revision": req["revision"],
-             "corpus_generation": source["generation"], "status": status, "support": support, "counterevidence": counter,
-             "candidates": [{key: candidate[key] for key in ("record_id", "score", "rank")} for candidate in retrieved["candidates"]],
-             "complete": not incomplete, "reason": reason, "method": method, "origin": origin, "model": model,
-             "policy_hash": digest("m3.assessment-policy.v1", {"policy": ASSESSMENT_POLICY, "method": method, "typed_threshold": 0.9}),
-             "judgments": judgments, "usage": {"requests": usages} if usages else None,
-             "validation": {"schema_version": 1, "state": "pending", "method": "restricted_template", "provenance": origin,
-                            "reason": "An explicit reviewer assessment must validate the exact claim, literal pointers and applicability"}}
+        "corpus_generation": source["generation"], "status": status, "support": support, "counterevidence": counter,
+        "candidates": [{key: candidate[key] for key in ("record_id", "score", "rank")} for candidate in retrieved["candidates"]],
+        "complete": not incomplete, "reason": reason, "method": method, "origin": origin, "model": model,
+        "policy_hash": assessment_policy(method, port, semantic), "policy_provenance": semantic,
+        "judgments": judgments, "usage": {"requests": usages} if usages else None,
+        "validation": {"schema_version": 1, "state": "pending", "method": "restricted_template", "provenance": origin,
+            "reason": "Explicit reviewer assessment must validate the exact claim, literal pointers and applicability"}}
     return validate_record("assessment", value)
 
 
@@ -429,14 +523,16 @@ def build_rows(artifact: Mapping[str, Any], corpus: Mapping[str, Any], *, method
 
 def build_matrix(artifact: Mapping[str, Any], corpus: Mapping[str, Any], *, method: str = "B0a", provider: Any = None) -> dict[str, Any]:
     """Return rows and discard/uncertainty audit from one inventory assessment."""
-    report = inventory_report(artifact, method=method, provider=provider)
+    artifact, corpus = validate_artifact(artifact), _verify_corpus(corpus)
+    port = judgment_port(provider, method)
+    check_provider_sources(port, artifact=artifact, corpus=corpus)
+    semantic = policy_context(method)
+    report = inventory_report(artifact, method=method, provider=port, _semantic_context=semantic)
     requirements = report["requirements"]
-    generation = digest("m3.assessment-generation.v1", {"artifact_sha": artifact["artifact_sha"],
-        "corpus_generation": corpus["generation"], "inventory_policy": INVENTORY_POLICY,
-        "assessment_policy": ASSESSMENT_POLICY, "method": method})
+    generation = assessment_generation(artifact["artifact_sha"], corpus["generation"], method, port, semantic)
     rows = []
     for requirement in requirements:
-        assessment = assess_requirement(requirement, corpus, method=method, provider=provider)
+        assessment = assess_requirement(requirement, corpus, method=method, provider=port, _semantic_context=semantic)
         value: dict[str, Any] = {"schema_version": 1, "row_id": requirement["requirement_id"],
             "requirement": requirement, "assessment": assessment, "answer_text": _answer(assessment),
             "validation": assessment["validation"], "assessment_generation": generation,
@@ -488,6 +584,18 @@ def revise_requirements(artifact: Mapping[str, Any], corpus: Mapping[str, Any],
     generations = {row["assessment_generation"] for row in selected}
     if len(generations) != 1 or any(row["assessment"]["corpus_generation"] != corpus["generation"] for row in selected):
         raise M3Error("stale_revision", "Rows no longer share the selected assessment/corpus generation")
+    if any(row["assessment"]["method"] != method for row in selected):
+        raise M3Error("method_revision_mismatch", "Change methods through full reassessment, not a local row edit")
+    revision_port = judgment_port(provider, method)
+    check_provider_sources(revision_port, artifact=artifact, corpus=corpus)
+    semantic = policy_context(method)
+    expected_assessment_policy = assessment_policy(method, revision_port, semantic)
+    if any(policy_status(row["assessment"].get("policy_provenance"), semantic)["status"] != "current" for row in selected):
+        raise M3Error("stale_revision_policy", "Semantic policy is legacy, missing, changed or restart-required; reassess explicitly")
+    # ReviewStore publishes its own authoritative generation after producer rows
+    # are materialized; compare producer policy, not that domain generation hash.
+    if any(row["assessment"]["policy_hash"] != expected_assessment_policy for row in selected):
+        raise M3Error("stale_revision_policy", "Provider/source/policy changed; fully reassess before a local edit")
     originals = [validate_record("requirement", row["requirement"]) for row in selected]
     for requirement in originals:
         for anchor in requirement["anchors"]:
@@ -531,10 +639,16 @@ def revise_requirements(artifact: Mapping[str, Any], corpus: Mapping[str, Any],
             "parent_policy": base["policy_hash"], "operation": operation, "reason": reason})
         requirement["revision"] = digest("m3.requirement-revision.v1", requirement)
         requirement = validate_record("requirement", requirement)
-        assessment = assess_requirement(requirement, corpus, method=method, provider=provider)
+        assessment = assess_requirement(requirement, corpus, method=method, provider=revision_port, _semantic_context=semantic)
         row: dict[str, Any] = {"schema_version": 1, "row_id": identity, "requirement": requirement,
             "assessment": assessment, "answer_text": _answer(assessment), "validation": assessment["validation"],
             "assessment_generation": selected[0]["assessment_generation"], "unvalidated_note": ""}
+        human_origins = [original["human_origin"] for original in selected if isinstance(original.get("human_origin"), Mapping)]
+        if human_origins:
+            row["human_origin"] = {**human_origins[0], "derived_operation": operation,
+                "derived_from_row_ids": sorted(row_ids), "blind_method_prediction": False,
+                "human_source_candidates": [{key: origin.get(key) for key in ("candidate_id", "artifact_sha", "machine_report_sha")}
+                                            for origin in human_origins]}
         row["row_revision"] = digest("m3.row-revision.v1", row)
         row["approval"], row["decision_event_id"] = "pending", None
         replacement_rows.append(row)
@@ -551,9 +665,10 @@ def reassess_rows(artifact: Mapping[str, Any], new_corpus: Mapping[str, Any],
     """
     _method(method)
     source, corpus = validate_artifact(artifact), _verify_corpus(new_corpus)
-    generation = digest("m3.assessment-generation.v1", {"artifact_sha": source["artifact_sha"],
-        "corpus_generation": corpus["generation"], "inventory_policy": INVENTORY_POLICY,
-        "assessment_policy": ASSESSMENT_POLICY, "method": method})
+    port = judgment_port(provider, method)
+    check_provider_sources(port, artifact=source, corpus=corpus)
+    semantic = policy_context(method)
+    generation = assessment_generation(source["artifact_sha"], corpus["generation"], method, port, semantic)
     rows = []
     for current in current_rows:
         if current.get("retired", False):
@@ -561,11 +676,11 @@ def reassess_rows(artifact: Mapping[str, Any], new_corpus: Mapping[str, Any],
         requirement = validate_record("requirement", current["requirement"])
         for anchor in requirement["anchors"]:
             resolve_anchor(source, anchor)
-        assessment = assess_requirement(requirement, corpus, method=method, provider=provider)
+        assessment = assess_requirement(requirement, corpus, method=method, provider=port, _semantic_context=semantic)
         row: dict[str, Any] = {"schema_version": 1, "row_id": current["row_id"], "requirement": requirement,
             "assessment": assessment, "answer_text": _answer(assessment), "validation": assessment["validation"],
             "assessment_generation": generation, "unvalidated_note": current.get("unvalidated_note", "")}
-        for lineage_key in ("revision_ancestry", "dependency_revision"):
+        for lineage_key in ("revision_ancestry", "dependency_revision", "human_origin"):
             if lineage_key in current:
                 row[lineage_key] = current[lineage_key]
         row["row_revision"] = digest("m3.row-revision.v1", row)

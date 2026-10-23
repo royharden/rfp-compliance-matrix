@@ -35,6 +35,7 @@ class ProviderConfig:
     token_bound_policy: str = ""
     question_policy: str = "m3-typed-registered-candidates-v1"
     source_policy: str = "m3-source-artifact-and-corpus-state-v1"
+    semantic_fingerprint: str = ""
     document_id: str = ""
     source_sha256: str = ""
     corpus_sha256: str = ""
@@ -71,6 +72,8 @@ class ProviderConfig:
                 raise M3Error("provider_config", "Policy fields must be bounded strings")
         if self.method not in {"B0b", "F1", "F2"} or type(self.enabled) is not bool:
             raise M3Error("provider_config", "Unknown method or non-boolean enabled gate")
+        if self.semantic_fingerprint and not re.fullmatch(r"[0-9a-f]{64}", self.semantic_fingerprint):
+            raise M3Error("provider_config", "Semantic fingerprint must be exact or explicitly missing")
         if type(self.max_input_tokens) is not int or not 0 < self.max_input_tokens <= 8000:
             raise M3Error("provider_config", "Input cap must be an integer in 1..8000")
         if type(self.max_output_tokens) is not int or not 0 < self.max_output_tokens <= 8000:

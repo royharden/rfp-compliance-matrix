@@ -102,6 +102,7 @@ class DocumentArtifact(Wire):
     pages: list[PageArtifact] = Field(min_length=1, max_length=100)
     complete: bool
     issues: list[str] = Field(default_factory=list, max_length=1000)
+    policy_provenance: dict[str, Any] | None = None
 
 
 class RequirementVersion(Wire):
@@ -178,6 +179,7 @@ class EvidenceAssessment(Wire):
     judgments: list[dict[str, Any]] = Field(default_factory=list, max_length=100)
     usage: dict[str, Any] | None = None
     validation: Validation
+    policy_provenance: dict[str, Any] | None = None
 
 
 T = TypeVar("T", bound=Wire)
@@ -192,7 +194,12 @@ def validate_record(record_type: type[T] | str, value: Mapping[str, Any]) -> dic
     }
     cls = kinds[record_type] if isinstance(record_type, str) else record_type
     try:
-        return cls.model_validate(dict(value)).model_dump(mode="json")
+        result = cls.model_validate(dict(value)).model_dump(mode="json")
+        # An absent optional upgrade field must not rewrite historical artifact,
+        # assessment or row content identities merely by validating old bytes.
+        if cls in {DocumentArtifact, EvidenceAssessment} and "policy_provenance" not in value:
+            result.pop("policy_provenance", None)
+        return result
     except (ValueError, TypeError) as exc:
         raise M3Error("invalid_wire", f"Invalid {cls.__name__}", detail=str(exc)) from exc
 

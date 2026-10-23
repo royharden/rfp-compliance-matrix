@@ -8,7 +8,11 @@ never silently replaces LangGraph with a plain loop or in-memory checkpoint.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import importlib.metadata
+import json
+import os
 from pathlib import Path
+import sqlite3
 from typing import Any, Iterator, TypedDict
 
 from .store import ReviewError, ReviewStore, digest
@@ -36,6 +40,27 @@ class LangGraphReviewDriver:
         if path.is_symlink() or path == store.db_path:
             raise ReviewError("unsafe_checkpoint_path", "Checkpoint database must be separate from the domain database.")
         path.parent.mkdir(parents=True, exist_ok=True)
+        metadata_path = path.with_suffix(path.suffix + ".format.json")
+        if metadata_path.is_symlink():
+            raise ReviewError("unsafe_checkpoint_path", "Checkpoint compatibility record cannot be a symlink.")
+        versions = {package: importlib.metadata.version(package)
+                    for package in ("langgraph", "langgraph-checkpoint", "langgraph-checkpoint-sqlite")}
+        prior_format = None
+        if path.exists():
+            if not metadata_path.is_file():
+                raise ReviewError("checkpoint_unverified", "Existing checkpoint lacks an exact compatibility record; preserve it and explicitly recover in a new projection.")
+            try:
+                prior_format = json.loads(metadata_path.read_text(encoding="utf-8"))
+                if prior_format.get("schema_version") != 1 or prior_format.get("versions") != versions:
+                    raise ReviewError("checkpoint_unsupported", "Checkpoint dependencies changed; preserve it for explicit migration/recovery.")
+                if prior_format.get("sqlite_schema") != self._schema(path):
+                    raise ReviewError("checkpoint_unsupported", "Checkpoint schema differs from the exact recorded format.")
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                if isinstance(exc, ReviewError):
+                    raise
+                raise ReviewError("checkpoint_corrupt", "Checkpoint database or compatibility record is corrupt/partial.") from exc
+        elif metadata_path.exists():
+            raise ReviewError("checkpoint_missing", "Checkpoint file is missing beside its compatibility record; explicit recovery is required.")
 
         def review_node(state: _ReviewState) -> dict:
             presentation = state["presentation"]
@@ -45,16 +70,40 @@ class LangGraphReviewDriver:
             event = store.event(presentation["run_id"], event_id)
             if (event["row_id"] != presentation["row_id"]
                     or event["assessment_generation"] != presentation["assessment_generation"]
-                    or event["expected_row_revision"] != presentation["row_revision"]):
+                    or event["expected_row_revision"] != presentation["row_revision"]
+                    or event.get("expected_decision_revision", event["expected_row_revision"]) != presentation.get("decision_revision", presentation["row_revision"])):
                 raise ReviewError("invalid_resume", "Decision does not match the interrupted row revision.")
             return {"decision_event_id": event_id}
 
         with SqliteSaver.from_conn_string(str(path)) as checkpointer:
+            # Public read API initializes the saver without running a graph node.
+            checkpointer.get_tuple({"configurable": {"thread_id": "__m3_format_probe__"}})
+            if prior_format is None:
+                from .store import canonical
+                record = {"schema_version": 1, "versions": versions, "sqlite_schema": self._schema(path)}
+                with metadata_path.open("x", encoding="utf-8") as stream:
+                    stream.write(canonical(record))
+                    stream.flush()
+                    os.fsync(stream.fileno())
             builder = StateGraph(_ReviewState)
             builder.add_node("review", review_node)
             builder.add_edge(START, "review")
             builder.add_edge("review", END)
             yield builder.compile(checkpointer=checkpointer), Command
+
+    @staticmethod
+    def _schema(path: Path) -> list:
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=0)
+        try:
+            if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise ReviewError("checkpoint_corrupt", "Checkpoint integrity failed.")
+            schema = [list(row) for row in connection.execute("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name")]
+            tables = {row[1] for row in schema if row[0] == "table"}
+            if not {"checkpoints", "writes"}.issubset(tables):
+                raise ReviewError("checkpoint_unsupported", "Checkpoint schema is partial or unsupported.")
+            return schema
+        finally:
+            connection.close()
 
     @staticmethod
     def _config(presentation: dict) -> dict:
@@ -63,6 +112,9 @@ class LangGraphReviewDriver:
         return {"configurable": {"thread_id": thread_id}}
 
     def pause(self, store: ReviewStore, run_id: str, row_id: str) -> dict:
+        snapshot = store.load_run(run_id)
+        from .currentness import require_current
+        require_current(snapshot, store._row(snapshot, row_id), provider=store.policy_provider)
         with store.run_lock(run_id):
             presentation = store.presentation(run_id, row_id)
             with self._graph(store) as (graph, _command):
@@ -92,9 +144,14 @@ class LangGraphReviewDriver:
         if store.applied(event["event_id"]):
             return {"status": "already_applied", "event_id": event["event_id"]}
         snapshot = store.load_run(run_id)
-        if event["assessment_generation"] != snapshot["assessment_generation"]:
+        current_row = next((row for row in snapshot["rows"] if row["row_id"] == event["row_id"]), None)
+        if (event["assessment_generation"] != snapshot["assessment_generation"] or not current_row
+                or current_row.get("decision_event_id") != event["event_id"] or current_row.get("retired")):
             store.mark_applied(run_id, event["event_id"], store.graph_epoch(run_id), "superseded_by_source_generation")
             return {"status": "superseded", "event_id": event["event_id"]}
+        from .currentness import require_current
+        if event.get("approval") in {"approved_positive", "approved_gap"}:
+            require_current(snapshot, current_row, provider=store.policy_provider)
         presentation = store.event_presentation(run_id, event)
         rebuilt = False
         with self._graph(store) as (graph, command):

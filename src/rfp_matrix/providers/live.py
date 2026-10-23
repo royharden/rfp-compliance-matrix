@@ -62,6 +62,16 @@ def usage_wire(value: Any, *, openai: bool = False) -> dict[str, Any] | None:
     return result
 
 
+def _semantic_gate(config: ProviderConfig) -> str | None:
+    if not config.semantic_fingerprint:
+        return "semantic_source_provenance_required"
+    from rfp_matrix.provenance import semantic_policy_fingerprint
+    current = semantic_policy_fingerprint(config.method)
+    if current["status"] != "available" or current["fingerprint"] != config.semantic_fingerprint:
+        return "semantic_source_restart_required" if current["restart_required"] else "semantic_source_policy_changed"
+    return None
+
+
 def error_outcome(config: ProviderConfig, exc: Exception) -> dict[str, Any]:
     # Never echo exception strings, URLs, request bodies or headers containing secrets.
     status = getattr(exc, "status", getattr(exc, "status_code", None))
@@ -97,6 +107,10 @@ class TypeSafeProvider:
         return {"state": dict(state), "questions": dict(questions), "model": self.config.model}
 
     def attempt(self, state: Mapping[str, Any], questions: Mapping[str, Any], *, timeout: float) -> dict[str, Any]:
+        if self.origin == "live":
+            reason = _semantic_gate(self.config)
+            if reason:
+                return outcome(self.config, reason)
         result = self._attempt(state, questions, timeout=timeout)
         if self.origin == "mock":
             result.update(origin="mock", model=None, usage_semantics="simulated",
@@ -146,6 +160,7 @@ class TypeSafeProvider:
                 "answers": raw.get("answers"), "usage": usage, "actual_cost_usd": None,
                 "question_policy": self.config.question_policy, "source_policy": self.config.source_policy,
                 "price_policy": self.config.price_policy, "config_sha256": self.config.config_sha256,
+                "semantic_fingerprint": self.config.semantic_fingerprint or None,
                 "distribution_semantics": "provider-reported-typesafe", "provider_response": raw,
                 "dispatched": True, "cost_status": "unsettled"}
             if self.origin == "mock":
@@ -215,6 +230,10 @@ class OpenAIClassificationProvider:
                 "name": "m3_closed_classification", "strict": True, "schema": schema}}}
 
     def attempt(self, state: Mapping[str, Any], questions: Mapping[str, Any], *, timeout: float) -> dict[str, Any]:
+        if self.origin == "live":
+            reason = _semantic_gate(self.config)
+            if reason:
+                return outcome(self.config, reason)
         result = self._attempt(state, questions, timeout=timeout)
         if self.origin == "mock":
             result.update(origin="mock", model=None, usage_semantics="simulated",
@@ -261,6 +280,7 @@ class OpenAIClassificationProvider:
                 raw_finish_reason=choice["finish_reason"], raw_logprobs=choice.get("logprobs"),
                 raw_response_sha256=digest("m3.f2-response.v1", dict(raw)))
             result.update(status="needs_review", model=raw["model"], cost_status="unsettled")
+            result["semantic_fingerprint"] = self.config.semantic_fingerprint or None
             if self.origin == "mock":
                 result.update(origin="mock", model=None, usage_semantics="simulated",
                               configured_sdk_version=self.config.sdk_version, sdk_version=None)
@@ -273,13 +293,34 @@ class OpenAIClassificationProvider:
 
 
 def create_provider(config: ProviderConfig | Mapping[str, Any] | None = None, *, client: Any = None,
-                    http_client: Any = None, ledger: Any = None) -> Any:
+                    http_client: Any = None, ledger: Any = None,
+                    run_envelope: Mapping[str, Any] | None = None,
+                    run_approval: Mapping[str, Any] | None = None,
+                    semantic_provenance: Mapping[str, Any] | None = None) -> Any:
     """Lazy factory. No client/key/ledger I/O until a future admitted judge call."""
     from .ports import DisabledProvider
     policy = config if isinstance(config, ProviderConfig) else ProviderConfig.from_mapping(config or {})
     reason = policy.admission_reason()
     if reason:
         return DisabledProvider(policy.method, reason=reason)
+    if (http_client is None if policy.method == "F2" else client is None):
+        from .envelope import validate_future_live_envelope
+        reason = validate_future_live_envelope(policy, run_envelope, run_approval)
+        if reason:
+            return DisabledProvider(policy.method, reason=reason)
+        from rfp_matrix.provenance import verify_fingerprint_descriptor, SEMANTIC_PROFILE
+        if (not verify_fingerprint_descriptor(semantic_provenance, profile=SEMANTIC_PROFILE)
+                or semantic_provenance["status"] != "available"
+                or semantic_provenance["identity"]["method"] != policy.method
+                or not policy.semantic_fingerprint
+                or semantic_provenance["fingerprint"] != policy.semantic_fingerprint):
+            return DisabledProvider(policy.method, reason="semantic_source_provenance_required")
+        if policy.method != "F2":
+            sdk = semantic_provenance["identity"]["components"]["judge"]["dependencies"]["typesafe-sdk"]
+            if sdk["status"] != "available" or sdk["version"] != policy.sdk_version:
+                return DisabledProvider(policy.method, reason="sdk_metadata_not_admitted")
+        elif semantic_provenance["identity"]["runtime"]["python_version"] != policy.sdk_version:
+            return DisabledProvider(policy.method, reason="sdk_metadata_not_admitted")
     transport = (OpenAIClassificationProvider(policy, http_client=http_client) if policy.method == "F2"
                  else TypeSafeProvider(policy, client=client))
     if ledger is None:

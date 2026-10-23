@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Export history · {{ vm.run_id }}{% endblock %}
+{% block content %}
+<nav aria-label="Breadcrumb"><a href="/">Workspaces</a> / <a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}">{{ vm.run_id }}</a> / Export history</nav>
+<h1>Committed export history</h1><p>All-row exports preserve unresolved states and decision lineage. Historical artifacts remain historical. Currentness and bytes are rechecked on access.</p>
+<p class="meta">Current matrix generation: <code>{{ vm.matrix_generation }}</code></p>
+{% for item in vm.exports %}<article class="panel"><h2>{{ item.export_id }}</h2><p>{{ item.created_at }} · {{ item.state }}</p>
+{% if item.historical %}<p class="warning">HISTORICAL — this artifact is not a current approval.</p>{% else %}<p>Historical flag not set in this listing; currentness is rechecked when downloaded.</p>{% endif %}
+<p class="meta">Exported generation <code>{{ item.matrix_generation }}</code></p>
+<ul>{% for file in item.downloads %}{% if file.filename in ['matrix.html','matrix.csv','matrix.md','coverage.json','inventory-audit.json','manifest.json'] %}<li><a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/export-files/{{ item.export_id|urlencode|replace('/', '%2F') }}/{{ file.filename }}">Download {{ file.filename }}{% if item.historical %} (historical){% endif %}</a></li>{% endif %}{% else %}<li>No committed downloadable artifacts available.</li>{% endfor %}</ul></article>
+{% else %}<div class="empty"><h2>No committed exports</h2><p>Prepare an export from the current matrix. No approval is inferred from an absent export.</p></div>{% endfor %}
+{% endblock %}

@@ -45,6 +45,15 @@ class BoundedDispatcher:
             reason = policy.admission_reason()
             if reason:
                 return outcome(policy, reason)
+            if self.transport.origin == "live":
+                # judge is an explicit semantic operation. Constructors remain
+                # no-I/O; recheck disk/process before keys, DB or SDK dispatch.
+                if not policy.semantic_fingerprint:
+                    return outcome(policy, "semantic_source_provenance_required")
+                from rfp_matrix.provenance import semantic_policy_fingerprint
+                current = semantic_policy_fingerprint(policy.method)
+                if current["status"] != "available" or current["fingerprint"] != policy.semantic_fingerprint:
+                    return outcome(policy, "semantic_source_restart_required" if current["restart_required"] else "semantic_source_policy_changed")
             if not self._ledger_matches():
                 return outcome(policy, "ledger_policy_mismatch")
             validate_questions(questions)

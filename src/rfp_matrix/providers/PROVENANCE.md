@@ -47,3 +47,46 @@ model/price/terms/token-bound policy, caller authorization and actual APIs. The
 approval hash binds all nonsecret configuration; it records application admission,
 not independent proof that a caller has organizational authority. Secrets are
 environment names only: `TYPESAFE_API_KEY`, `OPENAI_API_KEY`.
+
+## Source identity and packaging boundary (P4.11/P4.12)
+
+`rfp_matrix.provenance` is application-authored stdlib code, not copied SDK
+source. The TypeSafe wheel inspection above did not vendor that wheel. The
+project MIT declaration is not a transitive dependency license clearance.
+The only exact optional SDK declaration is `typesafe-sdk==0.7.5`; base parser,
+validation, graph, web, dev and build requirements remain version ranges in
+`pyproject.toml`. No lockfile, resolved environment, installed distribution,
+compatibility run or transitive license audit was produced. F2 uses stdlib
+urllib and has no OpenAI SDK requirement. B0a does not require TypeSafe.
+
+Explicit collection hashes the fixed package-relative allowlist, canonical
+Python AST or LF-normalized text, and relevant runtime/distribution metadata.
+`source/__init__.py` participates in parse and validate; `evidence/__init__.py`
+and `review/currentness.py, review/reassessment.py, review/inventory.py` participate in validate. Public binding changes
+therefore invalidate the relevant semantic context. Render/UI is separate.
+Missing source yields an unavailable component and null fingerprint. Missing
+distribution metadata remains explicit null metadata; it is not a fabricated
+installed version or source unavailability.
+
+`fingerprint` hashes only profile and identity. Process start/mtime guards,
+restart reasons, PID and host paths do not enter it. `descriptor_sha256` binds
+the full descriptor record separately. Source drift is sticky for that process;
+restart with identical code/environment retains the same deterministic policy
+identity. Neither hash authenticates an author, loaded bytecode or execution.
+Windows GetProcessTimes and Linux proc/boottime adapters are source only here;
+unknown creation time fails currentness closed. Files copied/touched after
+process creation can conservatively require restart. There is no reset or watcher.
+
+Wheel selection retains `src/rfp_matrix` including semantic `.py` files and
+web templates/static resources. Global Hatch exclusions remove `.bak-*`,
+`__pycache__`, `.pyc` and `.pyo` from distribution selection; no force-inclusion
+overrides exist. This follows [Hatch file selection documentation](https://hatch.pypa.io/latest/config/build/#patterns).
+No wheel/sdist was built or inspected. Actual packaged source/assets, LF/CRLF,
+native start-time and race behavior remain normal-mode verification work.
+
+Regression definitions use a synthetic injected collector, dynamic GROUPS
+fixtures and authored mock probabilities. They assert canonical text behavior,
+SDK-independent baseline/F2, separate render identity, sticky drift/reversion,
+stable identity after clean restart, missing-source failure, closed descriptor
+integrity, no-I/O disabled setup and legacy/current replay separation. These
+tests are UNRUN; no fixture represents observed provider quality or cost.

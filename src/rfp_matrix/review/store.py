@@ -58,19 +58,34 @@ def assessment_generation(artifact: dict, corpus: dict, policy: dict) -> str:
 
 
 def row_revision(row: dict) -> str:
-    return digest("m3.row-revision.v1", {key: row.get(key) for key in (
+    content = {key: row.get(key) for key in (
         "assessment_generation", "requirement", "assessment", "answer_text", "validation", "unvalidated_note",
         "dependency_revision", "retired", "revision_ancestry",
-    )})
+    )}
+    if "human_origin" in row:
+        content["human_origin"] = row["human_origin"]
+    return digest("m3.row-revision.v1", content)
+
+
+def decision_revision(row: dict) -> str:
+    """Opaque decision CAS, separate from content/approval citation identity."""
+    if row.get("decision_event_id") is None and row.get("approval", "pending") == "pending":
+        return row["row_revision"]
+    return digest("m3.row-decision-cas.v1", {"content_revision": row["row_revision"],
+                  "approval": row["approval"], "decision_event_id": row.get("decision_event_id")})
 
 
 def matrix_generation(snapshot: dict) -> str:
-    return digest("m3.matrix-generation.v1", {
+    content = {
         "assessment_generation": snapshot["assessment_generation"],
         "rows": [{"row_id": row["row_id"], "row_revision": row["row_revision"],
                   "approval": row["approval"], "decision_event_id": row.get("decision_event_id")}
                  for row in sorted(snapshot["rows"], key=lambda value: value["row_id"])],
-    })
+    }
+    # Preserve legacy generations until the first explicit coverage event.
+    if "coverage_revision" in snapshot:
+        content["coverage_revision"] = snapshot["coverage_revision"]
+    return digest("m3.matrix-generation.v1", content)
 
 
 _SCHEMA = """
@@ -96,17 +111,42 @@ CREATE TABLE IF NOT EXISTS revision_requests(run_id TEXT NOT NULL, request_id TE
 CREATE TABLE IF NOT EXISTS export_intents(export_id TEXT PRIMARY KEY, run_id TEXT NOT NULL,
     request_id TEXT NOT NULL, payload_hash TEXT NOT NULL, snapshot TEXT NOT NULL,
     created_at TEXT NOT NULL, state TEXT NOT NULL, artifacts TEXT, UNIQUE(run_id, request_id));
+CREATE TABLE IF NOT EXISTS coverage_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT UNIQUE NOT NULL, run_id TEXT NOT NULL, artifact_sha TEXT NOT NULL,
+    page_index INTEGER NOT NULL, request_id TEXT NOT NULL, payload_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL, event TEXT NOT NULL, UNIQUE(run_id, request_id));
+CREATE TABLE IF NOT EXISTS correspondence_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT UNIQUE NOT NULL, run_id TEXT NOT NULL REFERENCES runs(run_id),
+    comparison_id TEXT NOT NULL, request_id TEXT NOT NULL, payload_hash TEXT NOT NULL,
+    payload TEXT NOT NULL, old_history_seq INTEGER NOT NULL REFERENCES history(seq),
+    new_history_seq INTEGER NOT NULL REFERENCES history(seq), event TEXT NOT NULL,
+    UNIQUE(run_id, request_id));
+CREATE TABLE IF NOT EXISTS inventory_promotions(seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT UNIQUE NOT NULL, run_id TEXT NOT NULL REFERENCES runs(run_id),
+    request_id TEXT NOT NULL, payload_hash TEXT NOT NULL, payload TEXT NOT NULL,
+    candidate_id TEXT NOT NULL, artifact_sha TEXT NOT NULL, row_id TEXT NOT NULL,
+    history_seq INTEGER NOT NULL REFERENCES history(seq), event TEXT NOT NULL,
+    UNIQUE(run_id, request_id), UNIQUE(run_id, artifact_sha, candidate_id));
 """
 
 
 class ReviewStore:
     """One local-reviewer store. Actor identity is derived here, never from a row."""
 
-    def __init__(self, state_dir: str | Path):
+    def __init__(self, state_dir: str | Path, *, _restoring: bool = False, policy_provider: Any = None):
+        # Trusted object only; never constructed, called or inferred from requests.
+        self.policy_provider = policy_provider
         supplied = Path(state_dir).expanduser()
         if supplied.is_symlink():
             raise ReviewError("unsafe_path", "State directory must not be a symlink.")
         self.root = supplied.resolve()
+        restore_status = self.root / "restore-status.json"
+        if restore_status.exists():
+            if restore_status.is_symlink():
+                raise ReviewError("unsafe_path", "Restore status cannot be a symlink.")
+            state = json.loads(restore_status.read_text(encoding="utf-8"))
+            if state.get("state") != "complete" and not (_restoring and state.get("state") == "domain_validated"):
+                raise ReviewError("restore_incomplete", "Restore is incomplete; preserve it and choose a new destination.")
         if "onedrive" in {part.lower() for part in self.root.parts}:
             raise ReviewError("unsafe_state_location", "Use machine-local state outside OneDrive.")
         self.root.mkdir(parents=True, exist_ok=True)
@@ -116,6 +156,7 @@ class ReviewStore:
         self._mutex = threading.RLock()
         self._lock_depth: dict[str, int] = {}
         new_database = not self.db_path.exists()
+        self._allow_create = new_database
         marker = self.root / "store-id.txt"
         if marker.is_symlink():
             raise ReviewError("unsafe_path", "Domain identity marker must not be a symlink.")
@@ -125,17 +166,22 @@ class ReviewStore:
             with closing(self._connect()) as connection:
                 if new_database:
                     connection.executescript(_SCHEMA)
-                    connection.execute("INSERT INTO meta VALUES('schema_version', '1')")
+                    connection.execute("INSERT INTO meta VALUES('schema_version', '4')")
                     connection.execute("INSERT INTO meta VALUES('store_id', ?)", (str(uuid.uuid4()),))
                 else:
                     row = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-                    if not row or row[0] != "1":
+                    if not row or row[0] not in {"1", "2", "3", "4"}:
                         raise ReviewError("unsupported_schema", "Unknown domain schema; refusing automatic rebuild.")
                     if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
                         raise ReviewError("corrupt_domain", "Domain database integrity check failed.")
+                    if row[0] in {"1", "2", "3"}:
+                        # Additive upgrade only; no decision/history is rewritten.
+                        connection.executescript("BEGIN IMMEDIATE;" + _SCHEMA +
+                                                 "UPDATE meta SET value='4' WHERE key='schema_version'; COMMIT;")
                 self.store_id = connection.execute("SELECT value FROM meta WHERE key='store_id'").fetchone()[0]
         except sqlite3.DatabaseError as exc:
             raise ReviewError("corrupt_domain", "Cannot read authoritative domain database.") from exc
+        self._allow_create = False
         self.actor = "local:" + getpass.getuser() + ":" + self.store_id
         if marker.exists() and marker.read_text(encoding="utf-8") != self.store_id:
             raise ReviewError("domain_identity_mismatch", "Database and local store identity do not match.")
@@ -146,7 +192,13 @@ class ReviewStore:
                 os.fsync(handle.fileno())
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path, timeout=0, isolation_level=None)
+        if self.db_path.is_symlink():
+            raise ReviewError("unsafe_path", "Authoritative database cannot become a symlink.")
+        mode = "rwc" if getattr(self, "_allow_create", False) else "rw"
+        try:
+            connection = sqlite3.connect(self.db_path.as_uri() + "?mode=" + mode, uri=True, timeout=0, isolation_level=None)
+        except sqlite3.OperationalError as exc:
+            raise ReviewError("domain_unavailable", "Authoritative database is missing or unavailable; checkpoints cannot recreate it.") from exc
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA synchronous=FULL")
@@ -200,7 +252,7 @@ class ReviewStore:
 
     @contextmanager
     def transaction(self, run_id: str) -> Iterator[sqlite3.Connection]:
-        with self.run_lock(run_id):
+        with self.run_lock("M3-store-maintenance"), self.run_lock(run_id):
             connection = self._connect()
             try:
                 connection.execute("BEGIN IMMEDIATE")
@@ -222,6 +274,10 @@ class ReviewStore:
         return json.loads(record[0])
 
     def _save(self, connection: sqlite3.Connection, snapshot: dict, kind: str) -> None:
+        for row in snapshot["rows"]:
+            if "decision_revision" in row:
+                # Do not change an unrelated legacy row's effective fallback CAS.
+                row["decision_revision"] = decision_revision(row)
         snapshot["matrix_generation"] = matrix_generation(snapshot)
         encoded = canonical(snapshot)
         connection.execute("INSERT INTO runs(run_id,snapshot) VALUES(?,?) ON CONFLICT(run_id) DO UPDATE SET snapshot=excluded.snapshot",
@@ -256,6 +312,7 @@ class ReviewStore:
             row.update(row_id=row_id, assessment_generation=generation, approval="pending", decision_event_id=None)
             row.setdefault("unvalidated_note", "")
             row["row_revision"] = row_revision(row)
+            row["decision_revision"] = decision_revision(row)
             prepared.append(row)
         result = {"schema_version": 1, "run_id": safe_id(run_id), "artifact": deepcopy(artifact),
                   "corpus": deepcopy(corpus), "policy": deepcopy(policy), "rows": prepared,
@@ -279,10 +336,190 @@ class ReviewStore:
         with closing(self._connect()) as connection:
             return self._load(connection, run_id)
 
+    def _coverage(self, connection: sqlite3.Connection, snapshot: dict) -> dict:
+        from rfp_matrix.source.coverage import effective_coverage
+        records = connection.execute(
+            "SELECT event_id,created_at,event FROM coverage_events WHERE run_id=? AND artifact_sha=? ORDER BY seq",
+            (snapshot["run_id"], _hash_artifact(snapshot["artifact"])),
+        ).fetchall()
+        events = [json.loads(row["event"]) for row in records]
+        return {"events": events, "ledger": [{"event_id": row["event_id"], "created_at": row["created_at"]} for row in records],
+                "effective": effective_coverage(snapshot["artifact"], events)}
+
+    def coverage_state(self, run_id: str) -> dict:
+        """Artifact-specific full ledger and CAS revisions; no actor parameter."""
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
+            snapshot = self._load(connection, run_id)
+            return {"run_id": run_id, "matrix_generation": snapshot["matrix_generation"], **self._coverage(connection, snapshot)}
+
+    def amendments(self, run_id: str, *, previous_matrix_generation: str | None = None) -> dict:
+        from .correspondence import amendments
+        return amendments(self, run_id, previous_matrix_generation=previous_matrix_generation)
+
+    def record_correspondence(self, run_id: str, payload: dict) -> dict:
+        from .correspondence import record_correspondence
+        return record_correspondence(self, run_id, payload)
+
+    def correspondence_history(self, run_id: str, *, limit: int = 100) -> dict:
+        from .correspondence import correspondence_history
+        return correspondence_history(self, run_id, limit=limit)
+
+    def inventory_audit(self, run_id: str) -> dict:
+        from .inventory import inventory_audit_state
+        return inventory_audit_state(self, run_id)
+
+    def promote_inventory_candidate(self, run_id: str, payload: dict) -> dict:
+        from .inventory import promote_inventory_candidate
+        return promote_inventory_candidate(self, run_id, payload)
+
+    def run_envelope(self, run_id: str, policy_context: dict) -> dict:
+        from .preflight import run_envelope
+        return run_envelope(self, run_id, policy_context)
+
+    def policy_status(self, run_id: str) -> dict:
+        from .currentness import policy_review
+        snapshot = self.load_run(run_id)
+        return {"run_id": run_id, "matrix_generation": snapshot["matrix_generation"],
+                "assessment_generation": snapshot["assessment_generation"],
+                "policy_status": policy_review(snapshot, provider=self.policy_provider), "runtime_verified": False}
+
+    def reassess(self, run_id: str, **kwargs) -> dict:
+        from .reassessment import reassess
+        return reassess(self, run_id, **kwargs)
+
+    def inspect_coverage(self, run_id: str, page_index: int, action: str, *, expected_artifact_sha: str,
+                         expected_page_hash: str, expected_matrix_generation: str,
+                         expected_coverage_revision: str | None, request_id: str, reason: str,
+                         inspected_original: bool = False) -> dict:
+        """Append one source-owned decision with application actor, CAS and retry identity."""
+        from rfp_matrix.source.coverage import coverage_page_sha, make_coverage_decision
+        safe_id(request_id)
+        payload = {"run_id": run_id, "page_index": page_index, "action": action, "actor": self.actor,
+                   "artifact_sha": expected_artifact_sha, "page_sha": expected_page_hash,
+                   "expected_matrix_generation": expected_matrix_generation,
+                   "expected_revision": expected_coverage_revision, "reason": reason,
+                   "inspected_original": inspected_original}
+        payload_hash = digest("m3.coverage-request.v1", payload)
+        with self.transaction(run_id) as connection:
+            prior = connection.execute("SELECT * FROM coverage_events WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()
+            if prior:
+                if prior["payload_hash"] != payload_hash:
+                    raise ReviewError("idempotency_conflict", "Coverage request ID already binds another intent.")
+                current = self._load(connection, run_id)
+                return {"event": json.loads(prior["event"]), "event_id": prior["event_id"], "created_at": prior["created_at"], "replayed": True,
+                        "matrix_generation": current["matrix_generation"], "historical_event": prior["artifact_sha"] != _hash_artifact(current["artifact"]),
+                        **self._coverage(connection, current)}
+            for table in ("decisions", "revision_requests", "export_intents", "correspondence_events", "inventory_promotions"):
+                if connection.execute(f"SELECT 1 FROM {table} WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone():
+                    raise ReviewError("idempotency_conflict", "Request ID already belongs to another operation.")
+            snapshot = self._load(connection, run_id)
+            if snapshot["matrix_generation"] != expected_matrix_generation or _hash_artifact(snapshot["artifact"]) != expected_artifact_sha:
+                raise ReviewError("stale_generation", "Inspect the current artifact and matrix before recording coverage.", matrix_generation=snapshot["matrix_generation"])
+            if coverage_page_sha(snapshot["artifact"], page_index) != expected_page_hash:
+                raise ReviewError("stale_coverage", "Page content/structure hash changed.")
+            state = self._coverage(connection, snapshot)
+            previous = next((event for event in reversed(state["events"]) if event["page_index"] == page_index), None)
+            if expected_coverage_revision != (previous["revision"] if previous else None):
+                raise ReviewError("coverage_conflict", "Inspect the current page decision before replacing it.",
+                                  coverage_revision=previous["revision"] if previous else None,
+                                  matrix_generation=snapshot["matrix_generation"])
+            event = make_coverage_decision(snapshot["artifact"], page_index=page_index, decision=action, reason=reason,
+                                           actor=self.actor, request_id=request_id, expected_revision=expected_coverage_revision,
+                                           previous=previous, inspected_original=inspected_original)
+            event_id = "C-" + digest("m3.coverage-event.v1", [self.store_id, run_id, request_id, payload_hash])[:32]
+            created_at = utc_now()
+            connection.execute("INSERT INTO coverage_events(event_id,run_id,artifact_sha,page_index,request_id,payload_hash,created_at,event) VALUES(?,?,?,?,?,?,?,?)",
+                               (event_id, run_id, expected_artifact_sha, page_index, request_id, payload_hash, created_at, canonical(event)))
+            coverage = self._coverage(connection, snapshot)
+            snapshot["coverage"] = coverage
+            snapshot["coverage_revision"] = coverage["effective"]["summary_revision"]
+            for row in snapshot["rows"]:
+                if row.get("retired"):
+                    continue
+                if row.get("decision_event_id"):
+                    row["previous_decision_event_id"] = row["decision_event_id"]
+                row.update(approval="stale", decision_event_id=None, invalidation_reason="coverage_inspection_changed",
+                           dependency_revision=snapshot["coverage_revision"])
+                row["row_revision"] = row_revision(row)
+            self._save(connection, snapshot, "coverage_inspection")
+            return {"event": event, "event_id": event_id, "created_at": created_at, "replayed": False,
+                    "matrix_generation": snapshot["matrix_generation"], **coverage}
+
+    def backup(self, destination: str | Path) -> dict:
+        from .operations import backup_store
+        return backup_store(self, destination)
+
+    def diagnostics(self) -> dict:
+        from .operations import diagnostics
+        return diagnostics(self.root)
+
+    def reassess_coverage(self, run_id: str, *, expected_matrix_generation: str, request_id: str,
+                          reason: str, method: str = "B0a", provider: Any = None,
+                          provider_identity: str | None = None) -> dict:
+        """Explicitly version coverage-dependent requirements; never auto-approve."""
+        from rfp_matrix.evidence.engine import assess_requirement, _answer
+        intent = {"operation": "coverage_reassessment", "method": method, "provider_identity": provider_identity,
+                  "reason": reason, "expected_matrix_generation": expected_matrix_generation}
+        prior = self.revision_request(run_id, request_id)
+        if prior:
+            if prior["payload"].get("intent") != intent:
+                raise ReviewError("idempotency_conflict", "Reassessment ID belongs to a different intent.")
+            return prior["snapshot"]
+        snapshot = self.load_run(run_id)
+        if snapshot["matrix_generation"] != expected_matrix_generation:
+            raise ReviewError("stale_generation", "Coverage reassessment needs the current matrix.")
+        state = self.coverage_state(run_id)
+        summary = state["effective"]
+        if not summary["complete"] or summary.get("artifact_issues"):
+            raise ReviewError("coverage_incomplete", "All pages and document-level issues must be resolved before reassessment.")
+        replacements = []
+        for original in snapshot["rows"]:
+            if original.get("retired"):
+                continue
+            row = deepcopy(original)
+            requirement = row["requirement"]
+            requirement.pop("revision", None)
+            # Only source inspection flags can be discharged here. Split/classification
+            # uncertainty and absent/conflicting evidence keep their original semantics.
+            requirement["uncertainty"] = [flag for flag in requirement["uncertainty"]
+                                           if flag not in {"source_coverage_incomplete", "page_requires_inspection"}]
+            requirement["policy_hash"] = digest("m3.coverage-reassessment-policy.v1", {
+                "prior_policy": requirement["policy_hash"], "coverage_revision": summary["summary_revision"]})
+            requirement["revision"] = digest("m3.requirement-revision.v1", requirement)
+            requirement = validate_record("requirement", requirement)
+            assessment = assess_requirement(requirement, snapshot["corpus"], method=method, provider=provider)
+            row.update(requirement=requirement, assessment=assessment, answer_text=_answer(assessment),
+                       validation=assessment["validation"], unvalidated_note="")
+            # Preserve reviewer prose as historical snapshot only; regenerated answers
+            # are explicitly new restricted templates, never an attestation of edits.
+            replacements.append(row)
+        return self.revise_rows(run_id, [row["row_id"] for row in replacements], replacements,
+                                expected_matrix_generation=expected_matrix_generation, request_id=request_id,
+                                reason=reason, intent=intent)
+
     def events(self, run_id: str) -> list[dict]:
         with closing(self._connect()) as connection:
             self._load(connection, run_id)
             return [json.loads(row[0]) for row in connection.execute("SELECT event FROM decisions WHERE run_id=? ORDER BY seq", (run_id,))]
+
+    def change_history(self, run_id: str, *, limit: int = 50) -> dict:
+        """Bounded source/corpus update records, never approval-retention advice."""
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise ReviewError("input_limit", "Change-history limit must be 1..200.")
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN")
+            snapshot = self._load(connection, run_id)
+            total = connection.execute("SELECT COUNT(*) FROM history WHERE run_id=? AND kind LIKE 'source_update:%'", (run_id,)).fetchone()[0]
+            records = connection.execute("SELECT seq,kind,created_at,snapshot FROM history WHERE run_id=? AND kind LIKE 'source_update:%' ORDER BY seq DESC LIMIT ?", (run_id, limit)).fetchall()
+            entries = []
+            for record in reversed(records):
+                frozen = json.loads(record["snapshot"])
+                entries.append({"history_seq": record["seq"], "kind": record["kind"], "created_at": record["created_at"],
+                                "matrix_generation": frozen["matrix_generation"], "record": frozen.get("change_record"),
+                                "changes": frozen.get("change_report"), "legacy_context_unavailable": "change_report" not in frozen})
+            return {"run_id": run_id, "matrix_generation": snapshot["matrix_generation"], "updates": entries,
+                    "total_updates": total, "truncated": total > len(entries), "limit": limit}
 
     def _row(self, snapshot: dict, row_id: str) -> dict:
         for row in snapshot["rows"]:
@@ -319,7 +556,10 @@ class ReviewStore:
                    "human_validated": human_validated}
         payload_hash = digest("m3.decision-request.v1", payload)
         with self.transaction(run_id) as connection:
-            if connection.execute("SELECT 1 FROM revision_requests WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone():
+            if (connection.execute("SELECT 1 FROM inventory_promotions WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()
+                    or connection.execute("SELECT 1 FROM correspondence_events WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()
+                    or connection.execute("SELECT 1 FROM coverage_events WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()
+                    or connection.execute("SELECT 1 FROM revision_requests WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()):
                 raise ReviewError("idempotency_conflict", "This request ID belongs to a requirement revision.")
             previous = connection.execute("SELECT payload_hash,event FROM decisions WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()
             if previous:
@@ -330,9 +570,13 @@ class ReviewStore:
             row = self._row(snapshot, row_id)
             if row.get("retired"):
                 raise ReviewError("row_retired", "This historical obligation was retired by an explicit revision; review its replacements.")
-            if expected_assessment_generation != snapshot["assessment_generation"] or expected_row_revision != row["row_revision"]:
+            if "decision_revision" in row and row["decision_revision"] != decision_revision(row):
+                raise ReviewError("decision_revision_invalid", "Stored decision CAS is invalid; inspect/restore authoritative state.")
+            if expected_assessment_generation != snapshot["assessment_generation"] or expected_row_revision != row.get("decision_revision", row["row_revision"]):
                 raise ReviewError("stale_revision", "The row changed; inspect its fresh revision before deciding.",
-                                  assessment_generation=snapshot["assessment_generation"], row_revision=row["row_revision"])
+                                  assessment_generation=snapshot["assessment_generation"], row_revision=row["row_revision"],
+                                  decision_revision=row.get("decision_revision", row["row_revision"]))
+            expected_content_revision = row["row_revision"]
             if action in {"reject", "not_applies"} and not reason.strip():
                 raise ReviewError("reason_required", "This action requires a human rationale.")
             if answer_text is not None and action != "edit":
@@ -341,7 +585,11 @@ class ReviewStore:
                 raise ReviewError("invalid_transition", "Human validation applies only to an explicit positive approval.")
             assessment = row.get("assessment", {})
             status = assessment.get("status", "needs_review")
+            coverage_complete = self._coverage(connection, snapshot)["effective"]
+            source_complete = coverage_complete["complete"] and not coverage_complete.get("artifact_issues")
             if action in {"approve_positive", "accept_gap"}:
+                from .currentness import require_current
+                require_current(snapshot, row, provider=self.policy_provider)
                 self.validate_row(snapshot, row)
             if action == "approve_positive":
                 validation = row.get("validation", {})
@@ -356,14 +604,14 @@ class ReviewStore:
                 applicability = row["requirement"].get("applicability", "unknown")
                 if (status != "supported" or not validated or assessment.get("counterevidence")
                         or not assessment.get("support") or not assessment.get("complete", False)
-                        or not snapshot["artifact"].get("complete", False) or not snapshot["corpus"].get("complete", False)
+                        or not source_complete or not snapshot["corpus"].get("complete", False)
                         or applicability not in {"applies", "applicable"}):
                     raise ReviewError("approval_blocked", "Positive approval needs fully supported, validated, applicable content with no conflict.")
                 row["approval"] = "approved_positive"
                 row["row_revision"] = row_revision(row)
             elif action == "accept_gap":
                 if (status not in {"cannot_answer_absent", "cannot_answer_conflicting"} or not assessment.get("complete", False)
-                        or not snapshot["artifact"].get("complete", False) or not snapshot["corpus"].get("complete", False)
+                        or not source_complete or not snapshot["corpus"].get("complete", False)
                         or (status == "cannot_answer_conflicting" and not assessment.get("counterevidence"))):
                     raise ReviewError("approval_blocked", "Gap acknowledgement requires a valid complete absent/conflicting assessment.")
                 row["approval"] = "approved_gap"
@@ -398,11 +646,16 @@ class ReviewStore:
                         other["dependency_revision"] = digest("m3.ancestry-change.v1", [row_id, row["row_revision"], request_id])
                         other["row_revision"] = row_revision(other)
             event_id = "D-" + digest("m3.decision-event.v1", [run_id, request_id, payload_hash])[:32]
+            row["row_revision"] = row_revision(row)
+            previous_event_id = row.get("decision_event_id")
+            row["decision_event_id"] = event_id
+            row["decision_revision"] = decision_revision(row)
             event = {"schema_version": 1, "event_id": event_id, "run_id": run_id, "row_id": row_id,
                      "request_id": request_id, "actor": self.actor, "action": action, "reason": reason,
                      "assessment_generation": snapshot["assessment_generation"], "row_revision": row["row_revision"],
-                     "expected_row_revision": expected_row_revision,
-                     "previous_event_id": row.get("decision_event_id"), "created_at": utc_now(),
+                     "expected_row_revision": expected_content_revision,
+                     "expected_decision_revision": expected_row_revision, "decision_revision": row["decision_revision"],
+                     "previous_event_id": previous_event_id, "created_at": utc_now(),
                      "approval": row["approval"], "payload_hash": payload_hash}
             event["human_validated"] = human_validated
             row["decision_event_id"] = event_id
@@ -433,7 +686,10 @@ class ReviewStore:
                    "expected_matrix_generation": expected_matrix_generation, "reason": reason, "actor": self.actor, "intent": intent}
         payload_hash = digest("m3.requirement-revision-request.v1", payload)
         with self.transaction(run_id) as connection:
-            if connection.execute("SELECT 1 FROM decisions WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone():
+            if (connection.execute("SELECT 1 FROM inventory_promotions WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()
+                    or connection.execute("SELECT 1 FROM correspondence_events WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()
+                    or connection.execute("SELECT 1 FROM coverage_events WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()
+                    or connection.execute("SELECT 1 FROM decisions WHERE run_id=? AND request_id=?", (run_id, request_id)).fetchone()):
                 raise ReviewError("idempotency_conflict", "This request ID belongs to a row decision.")
             prior = connection.execute("SELECT payload_hash,snapshot FROM revision_requests WHERE run_id=? AND request_id=?",
                                        (run_id, request_id)).fetchone()
@@ -443,8 +699,11 @@ class ReviewStore:
                 return json.loads(prior["snapshot"])
             snapshot = self._load(connection, run_id)
             if expected_matrix_generation != snapshot["matrix_generation"]:
-                raise ReviewError("stale_generation", "Requirement revision used an outdated matrix generation.")
+                raise ReviewError("stale_generation", "Requirement revision used an outdated matrix generation.", matrix_generation=snapshot["matrix_generation"])
             old_rows = [self._row(snapshot, row_id) for row_id in old_row_ids]
+            from .currentness import require_current
+            for selected in old_rows:
+                require_current(snapshot, selected, provider=self.policy_provider)
             if any(row.get("retired") for row in old_rows):
                 raise ReviewError("row_retired", "Retired rows cannot be revised again as active obligations.")
             old_ids = set(old_row_ids)
@@ -516,14 +775,25 @@ class ReviewStore:
 
     def update_run(self, run_id: str, artifact: dict, corpus: dict, rows: list[dict], *,
                    expected_matrix_generation: str, reason: str = "new_corpus_generation",
-                   inventory_report: dict | None = None) -> dict:
+                   inventory_report: dict | None = None, provider_config_sha256: str | None = None) -> dict:
         with self.transaction(run_id) as connection:
             previous = self._load(connection, run_id)
             if previous["matrix_generation"] != expected_matrix_generation:
-                raise ReviewError("stale_generation", "Source update used an outdated matrix generation.")
-            snapshot = self._prepare(run_id, artifact, corpus, rows, previous["policy"], inventory_report)
+                raise ReviewError("stale_generation", "Source update used an outdated matrix generation.", matrix_generation=previous["matrix_generation"])
+            policy = deepcopy(previous["policy"])
+            policy["provider_config_sha256"] = provider_config_sha256
+            snapshot = self._prepare(run_id, artifact, corpus, rows, policy, inventory_report)
             if snapshot["assessment_generation"] == previous["assessment_generation"]:
                 raise ReviewError("unchanged_assessment", "Use explicit row decisions for unchanged source and corpus.")
+            from rfp_matrix.evidence import describe_changes
+            snapshot["change_report"] = describe_changes(previous["artifact"], artifact, previous["corpus"], corpus)
+            snapshot["change_record"] = {"schema_version": 1, "actor": self.actor, "reason": reason,
+                                         "created_at": utc_now(), "previous_matrix_generation": previous["matrix_generation"],
+                                         "context_sha": snapshot["change_report"]["context_sha"],
+                                         "assessment_policy_changed": previous["policy"] != policy,
+                                         "previous_provider_config_sha256": previous["policy"].get("provider_config_sha256"),
+                                         "provider_config_sha256": provider_config_sha256,
+                                         "approval_policy": "all_rows_stale_no_top_k_retention"}
             old = {row["row_id"]: row for row in previous["rows"]}
             for row in snapshot["rows"]:
                 prior = old.get(row["row_id"])
@@ -544,7 +814,12 @@ class ReviewStore:
                     retired["row_revision"] = row_revision(retired)
                     snapshot["rows"].append(retired)
             snapshot["created_at"] = previous["created_at"]
+            if len(snapshot["rows"]) > 2000:
+                raise ReviewError("row_limit", "Source update plus preserved retired obligations exceeds the complete row bound.")
             snapshot["requirement_revision_events"] = previous.get("requirement_revision_events", [])
+            if _hash_artifact(artifact) == _hash_artifact(previous["artifact"]) and "coverage_revision" in previous:
+                snapshot["coverage"] = previous["coverage"]
+                snapshot["coverage_revision"] = previous["coverage_revision"]
             self._save(connection, snapshot, "source_update:" + reason)
             return snapshot
 
@@ -553,11 +828,13 @@ class ReviewStore:
             self._load(connection, run_id)
             return int(connection.execute("SELECT MAX(epoch) FROM graph_epochs WHERE run_id=?", (run_id,)).fetchone()[0])
 
-    def recover_graph_epoch(self, run_id: str, reason: str) -> int:
+    def recover_graph_epoch(self, run_id: str, reason: str, *, reset_intents: bool = False) -> int:
         with self.transaction(run_id) as connection:
             self._load(connection, run_id)
             epoch = int(connection.execute("SELECT MAX(epoch) FROM graph_epochs WHERE run_id=?", (run_id,)).fetchone()[0]) + 1
             connection.execute("INSERT INTO graph_epochs VALUES(?,?,?,?)", (run_id, epoch, reason, utc_now()))
+            if reset_intents:
+                connection.execute("UPDATE resume_intents SET state='pending',detail=? WHERE run_id=?", (reason, run_id))
             return epoch
 
     def presentation(self, run_id: str, row_id: str) -> dict:
@@ -571,6 +848,7 @@ class ReviewStore:
                                (request_id, run_id, row_id, snapshot["assessment_generation"], row["row_revision"], epoch, utc_now()))
             return {"request_id": request_id, "run_id": run_id, "row_id": row_id,
                     "assessment_generation": snapshot["assessment_generation"], "row_revision": row["row_revision"], "epoch": epoch,
+                    "decision_revision": row.get("decision_revision", row["row_revision"]),
                     "persisted_before": existed}
 
     def pending_intents(self, run_id: str) -> list[dict]:
@@ -581,14 +859,14 @@ class ReviewStore:
 
     def applied(self, event_id: str) -> bool:
         with closing(self._connect()) as connection:
-            return connection.execute("SELECT 1 FROM applied_events WHERE event_id=?", (event_id,)).fetchone() is not None
+            return connection.execute("SELECT 1 FROM applied_events a JOIN decisions d ON d.event_id=a.event_id WHERE a.event_id=? AND a.epoch=(SELECT MAX(epoch) FROM graph_epochs WHERE run_id=d.run_id)", (event_id,)).fetchone() is not None
 
     def mark_applied(self, run_id: str, event_id: str, epoch: int, detail: str = "resumed") -> None:
         with self.transaction(run_id) as connection:
             event = connection.execute("SELECT 1 FROM decisions WHERE run_id=? AND event_id=?", (run_id, event_id)).fetchone()
             if not event:
                 raise ReviewError("event_missing", "Resume cannot apply an uncommitted decision.")
-            connection.execute("INSERT OR IGNORE INTO applied_events VALUES(?,?,?)", (event_id, utc_now(), epoch))
+            connection.execute("INSERT INTO applied_events VALUES(?,?,?) ON CONFLICT(event_id) DO UPDATE SET applied_at=excluded.applied_at,epoch=excluded.epoch", (event_id, utc_now(), epoch))
             connection.execute("UPDATE resume_intents SET state='applied',detail=? WHERE run_id=? AND event_id=?", (detail, run_id, event_id))
 
     def event(self, run_id: str, event_id: str) -> dict:
@@ -608,21 +886,24 @@ class ReviewStore:
                     (event["request_id"], run_id, event["row_id"], event["assessment_generation"], event["expected_row_revision"]),
                 ).fetchone()
                 if record:
-                    return {key: record[key] for key in ("request_id", "run_id", "row_id", "assessment_generation", "row_revision", "epoch")}
+                    return {**{key: record[key] for key in ("request_id", "run_id", "row_id", "assessment_generation", "row_revision", "epoch")},
+                            "decision_revision": event.get("expected_decision_revision", event["expected_row_revision"])}
                 epoch = int(connection.execute("SELECT MAX(epoch) FROM graph_epochs WHERE run_id=?", (run_id,)).fetchone()[0])
             request_id = "P-" + digest("m3.presentation-rebuild.v1", [run_id, event["row_id"], event["expected_row_revision"], epoch, event["request_id"]])[:32]
             connection.execute("INSERT OR IGNORE INTO presentations VALUES(?,?,?,?,?,?,?)",
                                (request_id, run_id, event["row_id"], event["assessment_generation"], event["expected_row_revision"], epoch, utc_now()))
             return {"request_id": request_id, "run_id": run_id, "row_id": event["row_id"],
-                    "assessment_generation": event["assessment_generation"], "row_revision": event["expected_row_revision"], "epoch": epoch}
+                    "assessment_generation": event["assessment_generation"], "row_revision": event["expected_row_revision"], "epoch": epoch,
+                    "decision_revision": event.get("expected_decision_revision", event["expected_row_revision"])}
 
     def reconcile(self, run_id: str, driver: Any = None) -> dict:
+        policy = self.policy_status(run_id)["policy_status"]
         pending = self.pending_intents(run_id)
         if driver is None:
-            return {"run_id": run_id, "status": "checkpoint_unavailable", "pending": len(pending), "applied": 0}
+            return {"run_id": run_id, "status": "checkpoint_unavailable", "pending": len(pending), "applied": 0, "policy_status": policy}
         count = 0
         with self.run_lock(run_id):
             for event in self.pending_intents(run_id):
                 driver.apply(self, run_id, event)
                 count += 1
-        return {"run_id": run_id, "status": "reconciled", "pending": len(self.pending_intents(run_id)), "applied": count}
+        return {"run_id": run_id, "status": "reconciled", "pending": len(self.pending_intents(run_id)), "applied": count, "policy_status": policy}
