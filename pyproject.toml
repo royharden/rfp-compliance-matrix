@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rfp-compliance-matrix"
+version = "0.1.0"
+description = "Local source-linked RFP review, durable human decisions, and deterministic compliance matrices"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [{name = "Roy Harden"}]
+dependencies = ["pydantic>=2,<3", "pdfplumber>=0.11,<0.12"]
+
+[project.optional-dependencies]
+graph = ["langgraph>=1,<2", "langgraph-checkpoint-sqlite>=3,<4"]
+
+[project.scripts]
+rfp-matrix = "rfp_matrix.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rfp_matrix"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
