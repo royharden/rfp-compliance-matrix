@@ -88,11 +88,11 @@ def validate_judgment(value: Mapping[str, Any], questions: Mapping[str, Any]) ->
 class DisabledProvider:
     """Mandatory keyless behavior: no key reads, network, SDK import or spending."""
 
-    def __init__(self, method: str = "F1") -> None:
-        self.method = method
+    def __init__(self, method: str = "F1", *, reason: str | None = None) -> None:
+        self.method, self.reason = method, reason
 
     def judge(self, state: Mapping[str, Any], questions: Mapping[str, Any]) -> dict[str, Any]:
-        return unavailable("Live transport is not admitted: budget is zero; exact SDK license/pin, price and provider approval are pending",
+        return unavailable(self.reason or "Live transport is not admitted: budget is zero; exact SDK license/pin, price and provider approval are pending",
                            model=MODEL if self.method in {"F1", "B0b"} else None)
 
 
