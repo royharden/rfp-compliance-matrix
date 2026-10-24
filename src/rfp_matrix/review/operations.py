@@ -162,10 +162,11 @@ def diagnostics(state_dir: str | Path) -> dict:
                             or context_sha != snapshot["change_record"]["context_sha"]):
                         raise _error("change_lineage_invalid", "Stored source/corpus change report digest differs.")
                 if "coverage_revision" in snapshot:
-                    from rfp_matrix.source.coverage import effective_coverage
+                    from rfp_matrix.source.coverage import effective_coverage, same_effective_coverage
                     coverage = snapshot["coverage"]
                     effective = effective_coverage(artifact, coverage["events"])
-                    if effective != coverage["effective"] or effective["summary_revision"] != snapshot["coverage_revision"]:
+                    if (not same_effective_coverage(effective, coverage["effective"])
+                            or effective["summary_revision"] != snapshot["coverage_revision"]):
                         raise _error("coverage_lineage_invalid", "Frozen coverage summary does not match its full event chain.")
                 for row in snapshot["rows"]:
                     if row_revision(row) != row["row_revision"]:

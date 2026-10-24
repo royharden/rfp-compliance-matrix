@@ -38,13 +38,13 @@ are separate versioned events, not rewritten parser facts. Actor authentication,
 CAS/idempotency, recovery, checkpoint compatibility and backup consistency remain
 runtime validation obligations.
 
-Evaluation is separate from the reviewer. `eval/scoring.py` accepts explicit
-development packets and adjudicated one-to-one matches. `eval/runner.py` freezes
+Evaluation is separate from the reviewer. `src/rfp_matrix/eval/scoring.py` accepts explicit
+development packets and adjudicated one-to-one matches. `src/rfp_matrix/eval/runner.py` freezes
 identical public inputs for B0a/B0b/F1/F2 and accepts only injected fake/baseline/
 replay ports in this construction boundary. The external custodian owns private
 gold, independently adjudicated equivalence, seal authentication, durable spent-set
 consumption and confirmatory scoring. Public receipts expose bounded aggregate
-counts with unmeasured/N/A states. `eval/corpus.py` prepares rights revisions and
+counts with unmeasured/N/A states. `src/rfp_matrix/eval/corpus.py` prepares rights revisions and
 checks family mappings/annotation structure; it creates no corpus permission or
 human custody. See [corpus workflow](eval/CORPUS-WORKFLOW.md).
 
@@ -57,7 +57,7 @@ must be activated and verified separately.
 ## Optional browser and amendment source
 
 The lazy local web factory uses the trusted ReviewerApplication domain port and
-D5 plain-text presenters. Packaged Jinja templates/CSS consume exact generation,
+pure plain-text presenters. Packaged Jinja templates/CSS consume exact generation,
 CSRF and route request identities. Backend authentication and original domain CAS
 remain authoritative; templates confer no permissions. The private bootstrap
 capability must use the OS-verified owner-only file policy, never terminal/log/URL.
@@ -76,10 +76,10 @@ across source/corpus changes. All new generations require explicit review. See
 The inventory audit derives from the stored immutable machine report and frozen
 source registry, with structural segment attribution and visible gaps. Human
 promotions are separate actor-owned events/new pending rows; the original report
-and blind method outputs stay unchanged. D6 owns transactional authority; browser
+and blind method outputs stay unchanged. The review store owns transactional authority; browser
 forms use registered candidate plus exact artifact/assessment/matrix versions.
 
-Evaluation seals optional native D4 per-arm/document prospective envelope digests,
+Evaluation seals optional native provider-planner per-arm/document prospective envelope digests,
 count/config/budget policies and algebraic bounds in the v3 immutable comparison
 manifest. The pure producer owns fanout/price math; missing context/price and
 partial or disabled states remain visible. External custody verifies actual pins,
@@ -90,7 +90,7 @@ See [frozen build provenance](eval/BUILD-PROVENANCE.md) for full normalized sema
 
 Later-process typed review has a separate provider-owned read-only identity
 factory, consumed by evidence/currentness and explicitly bound by the trusted CLI
-application. It has no inference capability. D7 evaluation rejects an identity
+application. It has no inference capability. Evaluation rejects an identity
 handle as a predictor; prospective identity cannot become a measured prediction
 receipt. See [typed review](docs/TYPED-REVIEW.md). Source, runtime, security and
 quality acceptance remain distinct; no new path has been executed.

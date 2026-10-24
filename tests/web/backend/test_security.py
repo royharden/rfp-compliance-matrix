@@ -1,6 +1,6 @@
 """Unrun backend-only security source; no server/browser or external account.
 
-Kept in D4's explicitly owned regression directory. These definitions do not
+Kept in the backend regression directory. These definitions do not
 establish runtime browser/HTTP/cookie/security acceptance.
 """
 import asyncio

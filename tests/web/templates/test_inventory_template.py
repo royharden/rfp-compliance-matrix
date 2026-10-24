@@ -4,9 +4,12 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from rfp_matrix.web.presentation import inventory_audit_view
+
+# Optional `web` extra: skip this module instead of aborting keyless collection.
+jinja2 = pytest.importorskip("jinja2")
+Environment, FileSystemLoader, StrictUndefined = jinja2.Environment, jinja2.FileSystemLoader, jinja2.StrictUndefined
 
 HOSTILE = '<script>alert("inventory")</script><img src=x onerror="alert(1)">'
 

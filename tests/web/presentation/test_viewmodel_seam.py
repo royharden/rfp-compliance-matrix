@@ -1,7 +1,7 @@
 """Critical pure-viewmodel regression SOURCE only; UNRUN, no renderer/HTTP/DB.
 
-Hostile strings remain plain strings here; Jinja autoescape is D7's separate
-template responsibility and is never claimed verified by these definitions.
+Hostile strings remain plain strings here; Jinja autoescape is a separate
+template-layer responsibility and is never claimed verified by these definitions.
 """
 from copy import deepcopy
 
@@ -163,3 +163,17 @@ def test_application_decision_cas_is_forwarded_without_changing_content_revision
     assert detail["controls"]["expected_row_revision"] == row["decision_revision"]
     row["decision_revision"] = None  # Present-but-invalid is not a legacy row.
     assert row_view(snapshot, row)["controls"]["actions"] == []
+
+def test_artifact_notices_are_displayed_but_never_gate_coverage_or_actions():
+    """what_bug_this_catches: a non-blocking synthetic-source notice is dropped, or is treated as a blocking artifact issue."""
+    from rfp_matrix.web.presentation import inventory_audit_view
+    snapshot = domain_snapshot()
+    snapshot["coverage"]["effective"]["artifact_notices"] = ["Synthetic development source; not public-PDF quality evidence"]
+    coverage = coverage_view(snapshot["coverage"])
+    assert coverage["artifact_notices"] == ["Synthetic development source; not public-PDF quality evidence"]
+    assert coverage["complete"] is True and coverage["artifact_issues"] == [] and coverage["warnings"] == []
+    row = row_view(snapshot, snapshot["rows"][0])
+    assert "approve_positive" in row["controls"]["actions"]
+    assert coverage_view({"effective": {}})["artifact_notices"] == []
+    audit = inventory_audit_view({"audit": {"artifact_notices": ["notice"]}, "snapshot": {}})
+    assert audit["artifact_notices"] == ["notice"] and inventory_audit_view({})["artifact_notices"] == []

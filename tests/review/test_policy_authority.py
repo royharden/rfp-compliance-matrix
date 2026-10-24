@@ -39,7 +39,7 @@ def _unavailable(snapshot, status="mismatch"):
 
 
 def test_captured_current_string_cannot_keep_old_approval_current_or_change_stored_cas(policy_run, monkeypatch):
-    """what_bug_this_catches: trusting a naked current status/hash rather than D5 validation of the supplied full actual descriptor."""
+    """what_bug_this_catches: trusting a naked current status/hash rather than evidence-layer validation of the supplied full actual descriptor."""
     import rfp_matrix.source as source
     store, before, _, _ = policy_run
     monkeypatch.setattr(source, "policy_context", lambda *args, **kwargs: {"status": "current", "fingerprint": "f" * 64})

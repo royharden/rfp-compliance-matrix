@@ -257,7 +257,7 @@ class PipelineMethodPort:
                           "cost_usd": total("cost_usd"), "latency_ms": None}, "trace": trace}
 
     def prospective_policy(self, document_id: str) -> Any:
-        """Exact disabled source policy for D4's pure envelope planner, no factory."""
+        """Exact disabled source policy for the provider layer's pure envelope planner, no factory."""
         from rfp_matrix.providers import ProviderConfig
         prepared = self.prepared[document_id]
         artifact, corpus = json.loads(prepared.artifact_json), json.loads(prepared.corpus_json)

@@ -1,4 +1,4 @@
-"""P5.15 regression SOURCE, UNRUN in Dirty Mode.
+"""Typed-review policy identity regression SOURCE, UNRUN in Dirty Mode.
 
 All descriptors, observations and hashes below are authored fixtures, including
 the literal origin 'live'. None records real execution, SDK availability or

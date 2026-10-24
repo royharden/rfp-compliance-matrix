@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from rfp_matrix.contracts import M3Error, digest
-from .artifacts import validate_artifact
+from .artifacts import artifact_notices, validate_artifact
 
 COVERAGE_POLICY = "m3-human-original-page-inspection-v1"
 _FIELDS = frozenset({"schema_version", "policy", "artifact_sha", "page_index", "page_sha",
@@ -108,6 +108,19 @@ def make_coverage_decision(artifact: Mapping[str, Any], *, page_index: int,
     return _validate_event(value, event)
 
 
+def same_effective_coverage(replayed: Mapping[str, Any], frozen: Any) -> bool:
+    """Exact replay equality for a frozen summary.
+
+    A summary frozen before the derived, non-blocking ``artifact_notices`` field existed
+    is compared without it (that field is a pure function of the bound artifact identity).
+    Every other field must match exactly.
+    """
+    current = dict(replayed)
+    if isinstance(frozen, Mapping) and "artifact_notices" not in frozen:
+        current.pop("artifact_notices", None)
+    return current == frozen
+
+
 def effective_coverage(artifact: Mapping[str, Any], decisions: Sequence[Mapping[str, Any]] = ()) -> dict[str, Any]:
     """Replay the complete, ordered artifact-specific ledger or fail closed.
 
@@ -152,5 +165,5 @@ def effective_coverage(artifact: Mapping[str, Any], decisions: Sequence[Mapping[
     unresolved = [page["page_index"] for page in pages if not page["resolved"]]
     return {"schema_version": 1, "policy": COVERAGE_POLICY, "artifact_sha": value["artifact_sha"],
             "complete": not unresolved, "unresolved_pages": unresolved, "pages": pages,
-            "artifact_issues": list(value["issues"]), "audit_revisions": audit,
+            "artifact_issues": list(value["issues"]), "artifact_notices": artifact_notices(value), "audit_revisions": audit,
             "summary_revision": digest("m3.effective-coverage.v1", {"artifact_sha": value["artifact_sha"], "audit_revisions": audit})}

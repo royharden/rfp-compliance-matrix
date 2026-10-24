@@ -132,6 +132,9 @@ def test_promotion_is_pending_no_model_dispatch_and_human_tags_survive_reassessm
 
     with monkeypatch.context() as guard:
         guard.setattr("rfp_matrix.evidence.engine.assess_requirement", forbidden_assessment)
+        # Promotion never reaches assess_requirement; guard the actual judgment dispatch seam too.
+        guard.setattr("rfp_matrix.evidence.engine.call_judgment", forbidden_assessment)
+        guard.setattr("rfp_matrix.evidence.consumer.call_judgment", forbidden_assessment)
         row = promote(artifact, corpus, matrix, candidate_id)
     assert row["approval"] == "pending" and row["decision_event_id"] is None
     assert row["assessment"]["status"] == "needs_review" and row["assessment"]["complete"] is False

@@ -1,11 +1,11 @@
 {% extends 'base.html' %}
-{% from '_parts.html' import warnings, pointer %}
+{% from '_parts.html' import warnings, pointer, notices %}
 {% block title %}Inventory audit · {{ vm.run_id }}{% endblock %}
 {% block content %}
 <nav aria-label="Breadcrumb"><a href="/">Workspaces</a> / <a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}">{{ vm.run_id }}</a> / Inventory audit</nav>
 <p class="eyebrow">Immutable machine disposition · Separate human correction</p><h1>Requirement inventory audit</h1>
 <p class="warning">STRUCTURAL ATTRIBUTION ONLY — semantic recall is not assessed. Complete attribution or page coverage cannot establish that all requirements were found. Human promotions create PENDING rows and are excluded from blind-method predictions.</p>
-{{ warnings(vm.warnings) }}{{ warnings(vm.artifact_issues) }}
+{{ warnings(vm.warnings) }}{{ warnings(vm.artifact_issues) }}{{ notices(vm.artifact_notices) }}
 {% if not vm.current %}<p class="warning">STALE / UNAVAILABLE audit identity. Promotion controls are disabled; inspect the current source and versions.</p>{% endif %}
 {% if vm.truncated %}<p class="warning">Audit display is truncated. Visible entries cannot establish a complete inventory.</p>{% endif %}
 <div class="summary"><span>Coverage: {{ 'complete under recorded policy' if vm.coverage_complete else 'UNRESOLVED' }}</span><span>Attribution: {{ 'complete under this registry' if vm.attribution_complete else 'INCOMPLETE' }}</span><span>Semantic recall: NOT ASSESSED</span></div>

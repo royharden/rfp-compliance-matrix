@@ -6,9 +6,23 @@ contradictory evidence, explicit human decisions and a complete HTML/CSV/Markdow
 matrix with generation lineage. It helps reviewers inspect evidence; it does not
 establish legal compliance or commit a vendor.
 
-**Construction source — runtime unverified.** No app, test, parser, database,
-LangGraph, model, generator or evaluation execution has occurred in this phase.
-No measured quality, speed, cost, security or release-readiness claim is made.
+## Status
+
+**Construction source — runtime unverified.**
+
+- **Built (source only):** the Python core, CLI/TUI review workflow, SQLite review
+  store and LangGraph pause/resume source, deterministic HTML/CSV/Markdown exports,
+  optional local browser reviewer, and evaluation/scoring source, listed below.
+- **Not executed:** no test has been run or collected, and no app, parser,
+  database, LangGraph graph, template render, server, model or evaluation has been
+  executed. No live model or paid API call has been made; dependency versions are
+  unresolved and there is no lockfile.
+- **Construction caveat:** the code was written in a static-only construction
+  phase ("Dirty Mode"). Checks were limited to syntax parsing and source
+  inspection, so working behavior is an assumption until validated.
+- No measured quality, speed, cost, security or release-readiness claim is made.
+- **Next step:** [activation and validation](docs/ACTIVATION.md) lists the bounded
+  setup and runtime checks still required.
 
 ## Source capabilities
 
@@ -31,7 +45,9 @@ No measured quality, speed, cost, security or release-readiness claim is made.
 
 After environment activation and validation are authorized, resolve compatible
 licensed dependencies and the lockfile. The intended setup is `uv sync --extra
-graph`; it has not been run. Keep local state outside OneDrive and providers
+graph`; it has not been run. The full regression suite installs with
+`uv sync --extra test` (dev, web and graph); with a narrower install, browser
+route/template tests skip without the web extra. Keep local state outside OneDrive and providers
 disabled/zero-budget. The proposed keyless journey is:
 
 ```text

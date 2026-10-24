@@ -57,7 +57,7 @@ original-page inspection and source policy validation. A page acknowledgment doe
 not perform OCR or prove extraction quality.
 
 Backend supplies `request, vm, csrf_token, request_id, runtime_unverified` to Jinja
-with autoescape and StrictUndefined. Templates use D5 row/requirement/evidence/
+with autoescape and StrictUndefined. Templates use presentation-layer row/requirement/evidence/
 controls/lineage/notes/context/coverage/changes mappings. Quotes are text, never
 trusted markup. Links have fixed local route prefixes and encoded application IDs;
 source URLs or provider/model strings cannot supply href/action values. Export

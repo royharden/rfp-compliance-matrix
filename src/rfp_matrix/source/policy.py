@@ -50,7 +50,7 @@ def _context_valid(value: Mapping[str, Any]) -> bool:
 
 
 def policy_context(method: str, parser_profile: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """Explicit semantic operation: collect D4's descriptor, with no SDK dispatch."""
+    """Explicit semantic operation: collect the provenance layer's descriptor, with no SDK dispatch."""
     if method not in {"B0a", "B0b", "F1", "F2"}:
         raise M3Error("unknown_policy_method", "Unknown semantic method")
     profile = dict(parser_profile) if parser_profile is not None else None

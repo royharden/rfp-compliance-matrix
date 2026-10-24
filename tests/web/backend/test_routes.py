@@ -8,6 +8,10 @@ import pytest
 from rfp_matrix.web import create_app
 from rfp_matrix.web.security import LocalSessionAuthority, ReviewerIdentity
 
+# create_app/run_case need the optional `web` extra plus dev httpx; skip, not fail, without them.
+for _optional in ("fastapi", "jinja2", "httpx"):
+    pytest.importorskip(_optional)
+
 ORIGIN = "http://127.0.0.1:25001"  # Future in-process ASGI test scope, never a listener.
 
 

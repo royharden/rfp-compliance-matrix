@@ -74,6 +74,8 @@ def coverage_view(summary: Any) -> dict[str, Any]:
         "summary_revision": _text(effective.get("summary_revision"), 64),
         "pages": pages, "unresolved_pages": [page for page in (_page(item) for item in _items(effective.get("unresolved_pages"), 100)) if page is not None],
         "artifact_issues": _strings(effective.get("artifact_issues"), 1000),
+        # Informational provenance only: never part of complete/available/actions gates.
+        "artifact_notices": _strings(effective.get("artifact_notices"), 1000),
         "audit_revisions": _strings(effective.get("audit_revisions"), 10000),
         "warnings": [] if available else ["Coverage inspection state is unavailable; extraction completeness is unverified."]}
 
@@ -531,6 +533,7 @@ def inventory_audit_view(payload: Any) -> dict[str, Any]:
             if type(number := _map(audit.get("counts")).get(name)) is int and number >= 0},
         "coverage_complete": audit.get("coverage_complete") is True, "attribution_complete": audit.get("attribution_complete") is True,
         "artifact_issues": _strings(audit.get("artifact_issues"), 1000),
+        "artifact_notices": _strings(audit.get("artifact_notices"), 1000),  # informational, non-blocking
         "machine_report_complete": audit.get("machine_report_complete") is True,
         "semantic_recall": "not_assessed", "all_requirements_found": None,
         "truncated": audit.get("truncated") is True, "promotions": promotions,
@@ -544,9 +547,9 @@ def inventory_audit_view(payload: Any) -> dict[str, Any]:
 
 
 def build_view(kind: str, payload: Any) -> dict[str, Any]:
-    """Closed D4 route dispatcher; generations only come from a full snapshot.
+    """Closed route dispatcher; generations only come from a full snapshot.
 
-    Accepts D6 get_row's nested {snapshot,row} as well as the flattened seam.
+    Accepts the application get_row's nested {snapshot,row} as well as the flattened seam.
     Route CSRF/request IDs and actor/paths are intentionally not copied through.
     """
     value = _map(payload)

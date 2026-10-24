@@ -7,7 +7,9 @@ they have not been run. No infrastructure is required for this local CLI scope.
 1. Resolve exact licensed dependency versions and lockfile on the selected Python
    version, including pdfplumber, Pydantic and the optional LangGraph SQLite
    checkpointer. Existing pyproject ranges are provisional. `uv sync --extra graph`
-   is an intended setup command, not executed evidence. Keep all live providers
+   is an intended setup command, not executed evidence; the full regression suite
+   installs with `uv sync --extra test` (dev, web and graph), and browser
+   route/template tests skip when the web extra is absent. Keep all live providers
    disabled with zero budget; machine-local state must remain outside OneDrive.
 2. Exercise permitted real PDF import, all-page coverage, literal repeated/Unicode
    anchors, tables/reading-order uncertainty and mixed image/text rejection. Verify

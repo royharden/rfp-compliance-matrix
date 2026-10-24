@@ -43,6 +43,11 @@ class ProviderConfig:
     admission_reference: str = ""
     approved_config_sha256: str = ""
 
+    def __post_init__(self) -> None:
+        # JSON 60 and default 60.0 must hash identically; bool stays rejected by validate().
+        if type(self.deadline_seconds) is int and 0 < self.deadline_seconds <= 60:
+            object.__setattr__(self, "deadline_seconds", float(self.deadline_seconds))
+
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "ProviderConfig":
         if not isinstance(value, Mapping) or set(value) - {f.name for f in fields(cls)}:

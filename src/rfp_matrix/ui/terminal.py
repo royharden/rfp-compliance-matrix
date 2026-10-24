@@ -186,7 +186,9 @@ def review_terminal(store: Any, run_id: str, *, row_id: str | None = None, queue
             reason = read("Required rationale for requirement revision: ").strip()
             request_id = "V-" + str(uuid.uuid4())
             write(f"Revision request ID: {request_id}; retain to retry this exact payload.")
-            revised = revise_requirement(operation=operation, row_ids=old_ids, interpretations=interpretations, applicability=applicability, reason=reason, method="B0a", expected_matrix_generation=snapshot["matrix_generation"], request_id=request_id)
+            # A local revision keeps the row's own method; changing method is a full reassessment.
+            method = selected.get("assessment", {}).get("method", "B0a")
+            revised = revise_requirement(operation=operation, row_ids=old_ids, interpretations=interpretations, applicability=applicability, reason=reason, method=method, expected_matrix_generation=snapshot["matrix_generation"], request_id=request_id)
             write("Requirement revision committed; changed rows are pending. Generation: " + str(revised["matrix_generation"]))
             row_id = None
             continue

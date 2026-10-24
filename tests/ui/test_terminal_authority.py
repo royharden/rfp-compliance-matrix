@@ -101,7 +101,7 @@ def test_machine_conflict_envelope_retains_current_and_expected_versions():
 
 
 def test_keyless_file_replay_uses_exact_keyword_factory_and_never_live(monkeypatch, tmp_path):
-    """what_bug_this_catches: positional drift in D4's replay API, mismatched hashes, or replay enabling live fallback."""
+    """what_bug_this_catches: positional drift in the provider layer's replay API, mismatched hashes, or replay enabling live fallback."""
     import rfp_matrix.providers as providers
     policy = SimpleNamespace(enabled=False, method="F1", document_id="R", source_sha256="A", corpus_sha256="C", config_sha256="policy-id")
     monkeypatch.setattr(cli, "_provider_config", lambda _: policy)
@@ -120,3 +120,45 @@ def test_keyless_file_replay_uses_exact_keyword_factory_and_never_live(monkeypat
     with pytest.raises(ValueError, match="forbids --allow-live"):
         cli._provider(args, tmp_path, artifact={"artifact_sha": "A"}, corpus={"generation": "C"})
     assert len(calls) == 1
+
+
+def test_policy_drift_is_displayed_without_opening_an_interrupt(monkeypatch, tmp_path):
+    """what_bug_this_catches: interactive review crashing on a non-current row instead of showing it (approval stays refused in decide)."""
+    def drifted_graph(*_):
+        raise ReviewError("policy_not_current", "Restart or reassess", policy_status={"status": "restart_required", "allows_current_claim": False})
+
+    monkeypatch.setattr(cli, "_graph", drifted_graph)
+    result = cli._pause(object(), tmp_path, "R", "row")
+    assert result["status"] == "policy_not_current" and result["interrupt_opened"] is False
+    assert result["policy_status"]["allows_current_claim"] is False and result["domain_decisions_preserved"] is True
+
+
+def test_interactive_revision_keeps_the_row_method(monkeypatch):
+    """what_bug_this_catches: the TUI hard-coding B0a so every typed-method row revision raises method_revision_mismatch."""
+    import rfp_matrix.review.currentness as currentness
+    from rfp_matrix.ui import terminal
+
+    row = {"row_id": "R1", "row_revision": "rev", "assessment": {"method": "F1"}}
+    snapshot = {"rows": [row], "matrix_generation": "G1", "assessment_generation": "A1"}
+    monkeypatch.setattr(currentness, "presented", lambda value, **_: value)
+    monkeypatch.setattr(currentness, "in_queue", lambda *_: True)
+    monkeypatch.setattr(terminal, "format_inventory", lambda *_: "inventory")
+    monkeypatch.setattr(terminal, "format_row", lambda *_: "row")
+    store = SimpleNamespace(policy_provider=None, load_run=lambda _run: snapshot)
+    revisions = []
+    reads = iter(["i", "Narrower interpretation", "Reviewer rationale", "q"])
+    terminal.review_terminal(store, "R", row_id="R1", read=lambda _: next(reads), write=lambda _: None,
+                             revise_requirement=lambda **kwargs: revisions.append(kwargs) or {"matrix_generation": "G2"})
+    assert len(revisions) == 1 and revisions[0]["method"] == "F1" and revisions[0]["expected_matrix_generation"] == "G1"
+
+
+def test_reconcile_policy_drift_after_commit_reports_pending_not_failure(monkeypatch, tmp_path):
+    """what_bug_this_catches: a committed decision reported as a command failure because a drifted pending intent could not be applied."""
+    class DriftedStore:
+        def reconcile(self, run_id, driver=None):
+            raise ReviewError("policy_not_current", "Restart or reassess", policy_status={"status": "mismatch", "allows_current_claim": False})
+
+    monkeypatch.setattr(cli, "_graph", lambda *_: object())
+    result = cli._reconcile(DriftedStore(), tmp_path, "R")
+    assert result["status"] == "policy_not_current" and result["intents_pending"] is True
+    assert result["policy_status"]["allows_current_claim"] is False and result["domain_decisions_preserved"] is True

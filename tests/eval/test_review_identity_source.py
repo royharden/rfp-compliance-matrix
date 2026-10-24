@@ -8,15 +8,13 @@ from rfp_matrix.contracts import digest
 from rfp_matrix.eval.pipeline import PipelineMethodPort, RecordingPort
 from rfp_matrix.eval.runner import _is_review_identity, freeze_comparison, run_comparison
 from rfp_matrix.providers import ReviewPolicyIdentity, review_policy_identity
-from test_build_provenance_source import descriptor
-from test_custody_source import CustodianFake, MethodFake, setup_comparison
 
 
-def identity_handle(status="available"):
+def identity_handle(kit, status="available"):
     """Authored metadata only. No installed SDK, source collection or model call."""
     if status == "unavailable":
         return review_policy_identity({}, semantic_provenance=None)
-    raw = deepcopy(descriptor("F1", restart=status == "restart_required"))
+    raw = deepcopy(kit.descriptor("F1", restart=status == "restart_required"))
     judge = raw["identity"]["components"]["judge"]
     judge["dependencies"]["typesafe-sdk"] = {"status": "available", "version": "0.7.5", "reason": None}
     judge["fingerprint"] = digest("m3.source-component.v1", {k: v for k, v in judge.items() if k != "fingerprint"})
@@ -28,10 +26,10 @@ def identity_handle(status="available"):
 
 
 @pytest.mark.parametrize("status", ["available", "unavailable", "restart_required"])
-def test_review_handle_rejected_before_external_seal_consumption(status):
+def test_review_handle_rejected_before_external_seal_consumption(eval_kit, status):
     """what_bug_this_catches: policy-only metadata consumes a seal as a prediction arm."""
-    public, frozen = setup_comparison()
-    handle, custodian = identity_handle(status), CustodianFake(frozen)
+    public, frozen = eval_kit.setup_comparison()
+    handle, custodian = identity_handle(eval_kit, status), eval_kit.CustodianFake(frozen)
     assert handle.status == status
     with pytest.raises(ValueError, match="read-only policy identity"):
         run_comparison(frozen, (public,), ports={"F1": handle}, custodian=custodian, seal=b"external-test-seal")
@@ -39,16 +37,16 @@ def test_review_handle_rejected_before_external_seal_consumption(status):
 
 
 @pytest.mark.parametrize("status", ["available", "unavailable", "restart_required"])
-def test_review_handle_rejected_by_judgment_recording_and_factory_constructor(status):
+def test_review_handle_rejected_by_judgment_recording_and_factory_constructor(eval_kit, status):
     """what_bug_this_catches: disabled identity is adapted into an evidence request delegate."""
-    handle = identity_handle(status)
+    handle = identity_handle(eval_kit, status)
     with pytest.raises(ValueError, match="read-only policy identity"):
         RecordingPort(handle)
     with pytest.raises(ValueError, match="Read-only review identity"):
         PipelineMethodPort("F1", (), factory=handle)
 
 
-def test_nominal_guard_never_reads_arbitrary_purpose_marker_or_config():
+def test_nominal_guard_never_reads_arbitrary_purpose_marker_or_config(eval_kit):
     """what_bug_this_catches: duck properties are executed/trusted while inspecting role."""
     class MarkerTrap:
         @property
@@ -61,10 +59,10 @@ def test_nominal_guard_never_reads_arbitrary_purpose_marker_or_config():
         def config(self):
             raise AssertionError("arbitrary config executed")
     assert _is_review_identity(MarkerTrap()) is False
-    assert _is_review_identity(identity_handle()) is True
+    assert _is_review_identity(identity_handle(eval_kit)) is True
 
 
-def test_nominal_role_rejected_even_if_successful_methods_are_attached(monkeypatch):
+def test_nominal_role_rejected_even_if_successful_methods_are_attached(eval_kit, monkeypatch):
     """what_bug_this_catches: interface shape defeats explicit read-only role restriction."""
     called = []
     def forbidden(*args, **kwargs):
@@ -72,9 +70,9 @@ def test_nominal_role_rejected_even_if_successful_methods_are_attached(monkeypat
         raise AssertionError("identity was executed")
     monkeypatch.setattr(ReviewPolicyIdentity, "judge", forbidden, raising=False)
     monkeypatch.setattr(ReviewPolicyIdentity, "predict", forbidden, raising=False)
-    handle = identity_handle()
-    public, frozen = setup_comparison()
-    custodian = CustodianFake(frozen)
+    handle = identity_handle(eval_kit)
+    public, frozen = eval_kit.setup_comparison()
+    custodian = eval_kit.CustodianFake(frozen)
     with pytest.raises(ValueError):
         RecordingPort(handle)
     with pytest.raises(ValueError):
@@ -82,22 +80,22 @@ def test_nominal_role_rejected_even_if_successful_methods_are_attached(monkeypat
     assert not called and not custodian.spent
 
 
-def test_review_projection_cannot_be_added_as_frozen_method_provenance():
+def test_review_projection_cannot_be_added_as_frozen_method_provenance(eval_kit):
     """what_bug_this_catches: prospective review identity is silently accepted as execution proof."""
-    public, original = setup_comparison()
+    public, original = eval_kit.setup_comparison()
     manifest = json.loads(original.canonical_manifest)
     methods = deepcopy(manifest["methods"])
-    methods["F1"]["review_policy_identity"] = dict(identity_handle().identity)
+    methods["F1"]["review_policy_identity"] = dict(identity_handle(eval_kit).identity)
     with pytest.raises(ValueError):
         freeze_comparison((public,), split=manifest["split"], pins=manifest["pins"],
             method_configs=methods, dataset_counts=manifest["dataset_counts"])
 
 
-def test_review_identity_payload_cannot_populate_prediction_metrics():
+def test_review_identity_payload_cannot_populate_prediction_metrics(eval_kit):
     """what_bug_this_catches: a policy receipt is smuggled into a measured prediction wire."""
-    public, frozen = setup_comparison()
-    handle, custodian = identity_handle(), CustodianFake(frozen)
-    class WrongReceipt(MethodFake):
+    public, frozen = eval_kit.setup_comparison()
+    handle, custodian = identity_handle(eval_kit), eval_kit.CustodianFake(frozen)
+    class WrongReceipt(eval_kit.MethodFake):
         def predict(self, **kwargs):
             result = super().predict(**kwargs)
             result["review_policy_identity"] = dict(handle.identity)

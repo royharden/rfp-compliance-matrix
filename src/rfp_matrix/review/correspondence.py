@@ -90,7 +90,7 @@ def amendments(store, run_id: str, *, previous_matrix_generation: str | None = N
                     "status": "unavailable", "code": exc.code, "comparison": {}, "human_events": [],
                     "correspondence_revision": None, "approval_carry_allowed": False}
         events = _events(connection, run_id, report["comparison_id"])
-        # Do not mutate D5's hashed pure report to attach application history.
+        # Do not mutate the evidence layer's hashed pure report to attach application history.
         return {"schema_version": 1, "run_id": run_id, "matrix_generation": current["matrix_generation"],
                 "comparison": report, "human_events": events, "old_history_sequence": sequence,
                 "correspondence_revision": events[-1]["revision"] if events else None,

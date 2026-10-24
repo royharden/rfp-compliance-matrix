@@ -6,14 +6,14 @@ prospective runner. It has not been imported or executed during construction.
 public-input file on future invocation; an extractor can be injected. Original
 PDF hash must match the extraction. Vendor JSONL uses `make_corpus`. Every arm
 receives the identical extraction, fictional corpus and literal candidate registry.
-D5's actual public seams are `registered_source_candidates(artifact)` returning
+The evidence engine's actual public seams are `registered_source_candidates(artifact)` returning
 the candidates envelope and `registered_evidence_windows(corpus)` returning the
 windows envelope. The adapter selects candidate anchors/window pointers and checks
 artifact/corpus binding; it uses no private segmentation fallback.
 
 Construct `PipelineMethodPort(method, prepared_tuple, provider_config=...,
 factory=..., client=..., http_client=..., ledger=..., inventory_cache=...)`.
-Construction has no effects. The lazy default factory is D4 `create_provider`,
+Construction has no effects. The lazy default factory is the provider layer's `create_provider`,
 using `ProviderConfig.from_mapping`. Policies must remain disabled/zero-budget.
 Inject only explicitly labelled fake ports in this boundary. Python injection is
 not a sandbox or live authority. F2 needs an explicit dated model/stdlib SDK
@@ -23,7 +23,7 @@ Use `port.frozen_configuration(price_sha=..., budget_sha=..., origin=...)` for
 each arm's config in `freeze_comparison`. The config binds the provider template
 and all preparations; actual document/extraction-artifact/corpus identity is bound
 per document in provider policy. The field source_sha256 binds artifact_sha in
-the current D4/D5 consumer contract; the original PDF hash remains separately
+the current provider/evidence consumer contract; the original PDF hash remains separately
 bound in PublicInput and prediction trace. Custody authority must still verify source, parser, normalizer,
 questions, thresholds, labels, split, budget and price pins.
 
@@ -31,7 +31,7 @@ B0a uses structural/modal inventory plus rule evidence matching. F1 uses typed
 inventory plus typed matching. B0b shares/replays the exact F1 inventory, then
 uses rule matching; a shared caller-owned ephemeral inventory cache preserves the
 logical extraction receipts. Mismatched inventory fails the pair before scoring.
-F2 uses D5's explicit uncalibrated generated-label branch with the same source and
+F2 uses the evidence consumer's explicit uncalibrated generated-label branch with the same source and
 bounded candidates, never fake Noul probabilities. Missing providers remain
 unavailable/needs_review, never confident absence. No human edits enter predictions.
 

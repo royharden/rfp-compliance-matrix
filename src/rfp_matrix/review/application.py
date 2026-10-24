@@ -255,7 +255,7 @@ class ReviewerApplication:
                 "current_at_read": not historical, "currentness_warning": "Frozen snapshot; later changes can make this historical."}
 
     def download_export(self, run_id: str, request_id: str, filename: str) -> dict:
-        """D4 route seam: request ID lookup, scoped ownership, verified bytes and label."""
+        """Web route seam: request ID lookup, scoped ownership, verified bytes and label."""
         safe_id(run_id)
         safe_id(request_id)
         with closing(self.store._connect()) as connection:
@@ -264,7 +264,7 @@ class ReviewerApplication:
             if not row:
                 raise ReviewError("export_missing", "No export request is owned by this run.")
             export_id = row["export_id"]
-        # Historical downloads are explicitly labelled by D4's attachment name,
+        # Historical downloads are explicitly labelled by the web layer's attachment name,
         # response header and the immutable document's own static warning.
         result = self.export_file(run_id, export_id, filename, allow_historical=True)
         return {**result, "sha256": hashlib.sha256(result["content"]).hexdigest(), "current": result["current_at_read"]}

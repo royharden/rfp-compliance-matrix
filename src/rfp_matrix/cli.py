@@ -217,6 +217,10 @@ def _reconcile(store: Any, state: Path, run_id: str) -> dict[str, Any]:
         return store.reconcile(run_id, driver=_graph(store, state))
     except Exception as exc:
         code = getattr(exc, "code", "")
+        if code == "policy_not_current":
+            # Committed decisions stand; the unapplied intent stays pending until current policy is restored.
+            return {"status": "policy_not_current", "code": code, "reason": str(exc), "policy_status": getattr(exc, "details", {}).get("policy_status"),
+                    "intents_pending": True, "domain_decisions_preserved": True, "runtime_verified": False}
         if not isinstance(exc, ImportError) and code != "graph_unavailable" and not code.startswith("checkpoint_"):
             raise
         return {"status": "checkpoint_unavailable", "code": code or "dependency_missing", "reason": str(exc), "domain_decisions_preserved": True, "runtime_verified": False}
@@ -227,6 +231,10 @@ def _pause(store: Any, state: Path, run_id: str, row_id: str) -> dict[str, Any]:
         return _graph(store, state).pause(store, run_id, row_id)
     except Exception as exc:
         code = getattr(exc, "code", "")
+        if code == "policy_not_current":
+            # Display-only: no interrupt is opened; decide() still refuses approvals on non-current rows.
+            return {"status": "policy_not_current", "code": code, "reason": str(exc), "policy_status": getattr(exc, "details", {}).get("policy_status"),
+                    "interrupt_opened": False, "domain_decisions_preserved": True, "runtime_verified": False}
         if not isinstance(exc, ImportError) and code != "graph_unavailable" and not code.startswith("checkpoint_"):
             raise
         return {"status": "checkpoint_unavailable", "code": code or "dependency_missing", "reason": str(exc), "domain_decisions_preserved": True, "runtime_verified": False}

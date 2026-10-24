@@ -38,7 +38,7 @@ Changing any commitment changes the freeze and requires matching external
 authorization/seal. Unknown fields and raw-input/budget mismatches are rejected.
 The real external custodian must authenticate actual source/config/registry/price/
 approval pins and durable spent policy; a digest alone establishes no authority.
-D4's later-live guard recomputes native algebra and exact prospective approval.
+The provider layer's later-live guard recomputes native algebra and exact prospective approval.
 Real SDK framing/output caps, scheduling, prices and budget enforcement still
 require later runtime validation.
 

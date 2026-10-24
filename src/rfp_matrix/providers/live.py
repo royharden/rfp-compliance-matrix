@@ -5,6 +5,7 @@ F2 generated labels are NOT probabilities and never enter the Jev answer wire.
 """
 from __future__ import annotations
 
+import copy
 import importlib.metadata
 import json
 import os
@@ -150,6 +151,8 @@ class TypeSafeProvider:
             sent = True
             response = client.system_one(**self.request_body(state, questions), timeout=remaining, retry=retry)
             raw = response.model_dump(mode="json") if hasattr(response, "model_dump") else dict(response)
+            # Own the payload: answers and provider_response must not alias the client's objects or each other.
+            raw = copy.deepcopy(raw)
             usage = usage_wire(raw.get("usage"))
             if raw.get("model") != self.config.model:
                 return outcome(self.config, "model_mismatch", usage=usage, dispatched=True,
@@ -157,7 +160,7 @@ class TypeSafeProvider:
             result = {"schema_version": 1, "status": "ok", "origin": "live",
                 "requested_model": self.config.model, "model": raw["model"],
                 "sdk_version": self.config.sdk_version, "sdk_name": self.config.sdk_name,
-                "answers": raw.get("answers"), "usage": usage, "actual_cost_usd": None,
+                "answers": copy.deepcopy(raw.get("answers")), "usage": usage, "actual_cost_usd": None,
                 "question_policy": self.config.question_policy, "source_policy": self.config.source_policy,
                 "price_policy": self.config.price_policy, "config_sha256": self.config.config_sha256,
                 "semantic_fingerprint": self.config.semantic_fingerprint or None,
@@ -277,7 +280,7 @@ class OpenAIClassificationProvider:
             result = outcome(self.config, "classification_without_calibrated_distribution", usage=usage,
                 dispatched=True, raw_classifications=labels, reported_model=raw["model"],
                 response_id=raw.get("id"), distribution_semantics="generated-closed-labels-no-probabilities",
-                raw_finish_reason=choice["finish_reason"], raw_logprobs=choice.get("logprobs"),
+                raw_finish_reason=choice["finish_reason"], raw_logprobs=copy.deepcopy(choice.get("logprobs")),
                 raw_response_sha256=digest("m3.f2-response.v1", dict(raw)))
             result.update(status="needs_review", model=raw["model"], cost_status="unsettled")
             result["semantic_fingerprint"] = self.config.semantic_fingerprint or None

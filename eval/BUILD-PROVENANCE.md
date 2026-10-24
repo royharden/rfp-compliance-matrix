@@ -6,8 +6,8 @@ future operation. `NativeBuildObserver` construction only stores parser profiles
 its `observe()` explicitly collects native descriptors. No watcher or hot reload
 is installed.
 
-The adapter preserves D5's full normalized `policy_context` for each method,
-including its verified D4 semantic descriptor and context SHA. Render provenance
+The adapter preserves the source policy's full normalized `policy_context` for each method,
+including its verified provenance semantic descriptor and context SHA. Render provenance
 uses the separate native render descriptor. Native `descriptor_sha256` protects
 the closed outer record; stable `fingerprint` hashes profile plus identity. Process
 restart/status/reasons do not become stable semantic identity. The evaluation
@@ -40,5 +40,5 @@ Receipts retain full build origin, separate semantic/render status, false runtim
 and quality claims, and a digest over the entire public receipt. Human authority,
 lawful corpus, durable custody, prices, real runtime behavior and independent
 product acceptance remain unverified. Current product approval is computed by the
-trusted application using D5 policy helpers and actual typed provider configuration;
+trusted application using source/evidence policy helpers and actual typed provider configuration;
 a captured `status=current` string or this evaluation metadata cannot authorize it.

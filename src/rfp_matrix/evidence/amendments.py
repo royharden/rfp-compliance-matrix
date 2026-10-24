@@ -201,7 +201,7 @@ def amendment_candidates(old_snapshot: Mapping[str, Any], new_snapshot: Mapping[
 def validate_correspondence_selection(comparison: Mapping[str, Any], *, comparison_id: str,
         expected_old_identity: Mapping[str, Any], expected_new_identity: Mapping[str, Any], relation: str,
         old_row_revisions: Mapping[str, str], new_row_revisions: Mapping[str, str]) -> dict[str, Any]:
-    """Pure membership/pin preflight; D6 owns authenticated durable CAS and events.
+    """Pure membership/pin preflight; the review store owns authenticated durable CAS and events.
 
     A successful selection only proposes lineage. It changes no row, approval,
     source, report or review requirement and authenticates no caller/actor.

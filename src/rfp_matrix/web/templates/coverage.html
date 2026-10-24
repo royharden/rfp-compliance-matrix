@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
-{% from '_parts.html' import warnings %}
+{% from '_parts.html' import warnings, notices %}
 {% block title %}Coverage · {{ vm.run_id }}{% endblock %}
 {% block content %}
 <nav aria-label="Breadcrumb"><a href="/">Workspaces</a> / <a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}">{{ vm.run_id }}</a> / Coverage</nav>
 <h1>Original-page coverage inspection</h1><p>Coverage is {{ 'complete under the recorded policy' if vm.complete else 'UNRESOLVED' }}. Inspection events supplement immutable parser artifacts; they do not perform OCR or establish vendor capability.</p>
-{{ warnings(vm.warnings) }}{{ warnings(vm.artifact_issues) }}
+{{ warnings(vm.warnings) }}{{ warnings(vm.artifact_issues) }}{{ notices(vm.artifact_notices) }}
 <p class="meta">Artifact <code>{{ vm.artifact_sha }}</code> · Summary revision <code>{{ vm.summary_revision }}</code></p>
 {% if vm.unresolved_pages %}<p class="warning">Unresolved pages: {{ vm.unresolved_pages|join(', ') }}. Incomplete extraction cannot establish a complete inventory.</p>{% endif %}
 {% for page in vm.pages %}<section class="panel"><h2>Page {{ page.page_number|default('unknown', true) }}</h2><p>Parser: {{ page.coverage }} · {{ 'Resolved' if page.resolved else 'UNRESOLVED' }} · {{ page.disposition }}</p>

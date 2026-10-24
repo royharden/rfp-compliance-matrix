@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from rfp_matrix.contracts import M3Error, canonical_json, digest, validate_record
-from rfp_matrix.source import structural_segments, validate_artifact
+from rfp_matrix.source import artifact_notices, structural_segments, validate_artifact
 from .engine import _method, _verify_corpus, registered_source_candidates
 
 
@@ -153,7 +153,7 @@ def inventory_audit(artifact: Mapping[str, Any], inventory_report: Mapping[str, 
         "parser": source["parser"], "parser_version": source["parser_version"], "normalization_policy": source["normalization_policy"],
         "entries": entries, "segments": segments, "structural_gaps": gaps,
         "page_coverage": [{key: page[key] for key in ("page_index", "text_sha", "coverage", "issues")} for page in source["pages"]],
-        "artifact_issues": list(source["issues"]), "counts": counts, "coverage_complete": source["complete"],
+        "artifact_issues": list(source["issues"]), "artifact_notices": artifact_notices(source), "counts": counts, "coverage_complete": source["complete"],
         "machine_report_complete": report.get("complete") is True,
         "attribution_complete": not counts["unattributed"] and not counts["unattributed_segments"] and not gaps,
         "semantic_recall": "not_assessed", "all_requirements_found": None, "truncated": False,
@@ -167,7 +167,7 @@ def promote_inventory_candidate(artifact: Mapping[str, Any], corpus: Mapping[str
         administrative: bool | None = None, applicability: str | None = None) -> dict[str, Any]:
     """Prepare one source-bound PENDING atom; application owns actor/CAS/event.
 
-    Current rows are a preflight only: D6 repeats duplicate/limit checks in its
+    Current rows are a preflight only: the review store repeats duplicate/limit checks in its
     commit transaction. No provider, retrieved support or positive answer exists.
     """
     source, vendor = validate_artifact(artifact), _verify_corpus(corpus)

@@ -1,7 +1,7 @@
 """UNRUN synthetic integrity contracts. No actual source/custody/model attestation.
 
-Descriptors below are authored in memory from closed native schemas. Their fake
-versions/file hashes never mean installed dependencies or execution evidence.
+Descriptors (conftest eval_kit) are authored in memory from closed native schemas. Their
+fake versions/file hashes never mean installed dependencies or execution evidence.
 """
 import json
 
@@ -13,42 +13,11 @@ from rfp_matrix.eval.build_provenance import (
     validate_build_provenance,
 )
 from rfp_matrix.eval.runner import fingerprint, freeze_comparison, run_comparison
-from rfp_matrix.provenance import (
-    CANONICAL_POLICY, GROUPS, LIBRARIES, RENDER_PROFILE, SEMANTIC_PROFILE,
-    verify_fingerprint_descriptor,
-)
-from test_custody_source import CustodianFake, MethodFake, setup_comparison
+from rfp_matrix.provenance import verify_fingerprint_descriptor
 
 
-def descriptor(method=None, *, marker="synthetic", restart=False):
-    profile = SEMANTIC_PROFILE if method else RENDER_PROFILE
-    selected = ("parse", "segment", "retrieve", "validate") + (() if method == "B0a" else ("judge",)) if method else ("render", "ui")
-    components = {}
-    for group in selected:
-        libraries = () if method == "F2" and group == "judge" else LIBRARIES[group]
-        body = {"status": "available", "files": [
-            {"path": path, "kind": "python_ast" if path.endswith(".py") else "text_lf",
-             "status": "available", "sha256": fingerprint([marker, path]), "reason": None}
-            for path in sorted(GROUPS[group])], "dependencies": {
-                name: {"status": "unavailable", "version": None, "reason": "distribution_not_installed"}
-                if name == "typesafe-sdk" else {"status": "available", "version": "synthetic-only", "reason": None}
-                for name in libraries}}
-        components[group] = {**body, "fingerprint": digest("m3.source-component.v1", body)}
-    identity = {"method": method, "parser_profile": None, "components": components,
-        "runtime": {"python_implementation": "synthetic", "python_version": "synthetic",
-            "unicode_version": "synthetic", "platform": "synthetic", "byteorder": "little",
-            "canonical_policy": CANONICAL_POLICY}}
-    value = {"schema_version": 1, "profile": profile,
-        "status": "restart_required" if restart else "available",
-        "fingerprint": digest("m3.fingerprint-descriptor.v1", {"profile": profile, "identity": identity}),
-        "identity": identity, "restart_required": restart,
-        "reasons": ["restart_required:validate"] if restart else [],
-        "execution_verified": False, "attestation": False}
-    return {**value, "descriptor_sha256": digest("m3.fingerprint-descriptor-record.v1", value)}
-
-
-def context(method, *, marker="synthetic", restart=False):
-    raw = descriptor(method, marker=marker, restart=restart)
+def context(kit, method, *, marker="synthetic", restart=False):
+    raw = kit.descriptor(method, marker=marker, restart=restart)
     value = {"schema_version": 1, "profile": "m3-semantic-context-v1", "method": method,
         "parser_profile": None, "status": "restart_required" if restart else "current",
         "fingerprint": raw["fingerprint"], "descriptor": raw, "reasons": raw["reasons"],
@@ -56,11 +25,11 @@ def context(method, *, marker="synthetic", restart=False):
     return {**value, "context_sha": digest("m3.semantic-context.v1", value)}
 
 
-def build(*, changed_method=None, render_marker="synthetic", restart_method=None):
+def build(kit, *, changed_method=None, render_marker="synthetic", restart_method=None):
     return collect_build_provenance(
-        semantic_collector=lambda method, **kwargs: context(method,
+        semantic_collector=lambda method, **kwargs: context(kit, method,
             marker="changed" if method == changed_method else "synthetic", restart=method == restart_method),
-        render_collector=lambda: descriptor(marker=render_marker),
+        render_collector=lambda: kit.descriptor(marker=render_marker),
         descriptor_verifier=verify_fingerprint_descriptor)
 
 
@@ -78,9 +47,9 @@ class Observer:
         return self.values.pop(0) if len(self.values) > 1 else self.values[0]
 
 
-def test_full_context_and_missing_sdk_preserved_without_execution_claim():
+def test_full_context_and_missing_sdk_preserved_without_execution_claim(eval_kit):
     """what_bug_this_catches: descriptor digest alone upgrades absent SDK to verified."""
-    value = build()
+    value = build(eval_kit)
     assert validate_build_provenance(value) == value
     member = value["semantic"]["F1"]
     assert member["semantic_context"]["descriptor"] == member["descriptor"]
@@ -101,9 +70,9 @@ def test_observer_constructor_never_collects(monkeypatch):
 
 
 @pytest.mark.parametrize("mutation", ["outer", "context", "summary", "private"])
-def test_rehashed_wrapper_cannot_hide_invalid_native_metadata(mutation):
+def test_rehashed_wrapper_cannot_hide_invalid_native_metadata(eval_kit, mutation):
     """what_bug_this_catches: public wrapper hash launders invalid/extra native metadata."""
-    value = build()
+    value = build(eval_kit)
     member = value["semantic"]["F1"]
     if mutation == "outer":
         member["descriptor"]["descriptor_sha256"] = "0" * 64
@@ -119,74 +88,74 @@ def test_rehashed_wrapper_cannot_hide_invalid_native_metadata(mutation):
         validate_build_provenance(value)
 
 
-def test_stable_identity_is_separate_from_restart_record_integrity():
+def test_stable_identity_is_separate_from_restart_record_integrity(eval_kit):
     """what_bug_this_catches: restart status is hashed into semantic identity or ignored."""
-    current, restart = descriptor("B0a"), descriptor("B0a", restart=True)
+    current, restart = eval_kit.descriptor("B0a"), eval_kit.descriptor("B0a", restart=True)
     assert current["fingerprint"] == restart["fingerprint"]
     assert current["descriptor_sha256"] != restart["descriptor_sha256"]
-    status = compare_build_provenance(build(), build(restart_method="B0a"), active_methods=("B0a",))
+    status = compare_build_provenance(build(eval_kit), build(eval_kit, restart_method="B0a"), active_methods=("B0a",))
     assert status["semantic"]["B0a"] == "restart_required" and not status["allows_sealed_run"]
 
 
-def test_render_changes_separate_from_semantics_and_inactive_arm():
+def test_render_changes_separate_from_semantics_and_inactive_arm(eval_kit):
     """what_bug_this_catches: UI drift overwrites semantic status or inactive SDK blocks baseline."""
-    old = build()
-    changed = compare_build_provenance(old, build(render_marker="CSS-change"), active_methods=("B0a",))
+    old = build(eval_kit)
+    changed = compare_build_provenance(old, build(eval_kit, render_marker="CSS-change"), active_methods=("B0a",))
     assert changed["semantic"] == {"B0a": "current_integrity_only"}
     assert changed["render"] == "mismatch" and not changed["allows_sealed_run"]
-    inactive = compare_build_provenance(old, build(changed_method="F1"), active_methods=("B0a",))
+    inactive = compare_build_provenance(old, build(eval_kit, changed_method="F1"), active_methods=("B0a",))
     assert inactive["allows_sealed_run"] is True
 
 
-def test_changed_pin_denied_before_external_consumption_and_prediction():
+def test_changed_pin_denied_before_external_consumption_and_prediction(eval_kit):
     """what_bug_this_catches: changed code reaches method/custodian using old freeze."""
-    public, original = setup_comparison()
-    frozen = frozen_with_build(public, original, build())
-    custodian, port = CustodianFake(frozen), MethodFake()
+    public, original = eval_kit.setup_comparison()
+    frozen = frozen_with_build(public, original, build(eval_kit))
+    custodian, port = eval_kit.CustodianFake(frozen), eval_kit.MethodFake()
     with pytest.raises(ValueError, match="provenance changed"):
         run_comparison(frozen, (public,), ports={"B0a": port}, custodian=custodian,
-            seal=b"external-test-seal", build_observer=Observer(build(changed_method="B0a")))
+            seal=b"external-test-seal", build_observer=Observer(build(eval_kit, changed_method="B0a")))
     assert not custodian.spent and port.seen == []
 
 
-def test_post_prediction_drift_keeps_seal_spent_and_never_scores():
+def test_post_prediction_drift_keeps_seal_spent_and_never_scores(eval_kit):
     """what_bug_this_catches: mid-run drift releases scores or returns consumed seal to pool."""
-    public, original = setup_comparison()
-    old = build()
+    public, original = eval_kit.setup_comparison()
+    old = build(eval_kit)
     frozen = frozen_with_build(public, original, old)
-    custodian, port = CustodianFake(frozen), MethodFake()
+    custodian, port = eval_kit.CustodianFake(frozen), eval_kit.MethodFake()
     with pytest.raises(ValueError, match="provenance changed"):
         run_comparison(frozen, (public,), ports={"B0a": port}, custodian=custodian,
-            seal=b"external-test-seal", build_observer=Observer(old, old, build(changed_method="B0a")))
+            seal=b"external-test-seal", build_observer=Observer(old, old, build(eval_kit, changed_method="B0a")))
     assert custodian.spent and len(port.seen) == 1 and custodian.scored == []
 
 
-def test_uncollected_build_is_never_a_current_integrity_claim():
+def test_uncollected_build_is_never_a_current_integrity_claim(eval_kit):
     """what_bug_this_catches: absent descriptor is interpreted as current verified code."""
     missing = validate_build_provenance(None)
     status = compare_build_provenance(missing, None, active_methods=("B0a",))
     assert status["semantic"] == {"B0a": "legacy_unverified"}
     assert status["all_active_integrity_current"] is False
-    current_missing = compare_build_provenance(build(), None, active_methods=("B0a",))
+    current_missing = compare_build_provenance(build(eval_kit), None, active_methods=("B0a",))
     assert current_missing["allows_sealed_run"] is False
 
 
-def test_native_descriptor_without_outer_integrity_is_not_collected_proof():
+def test_native_descriptor_without_outer_integrity_is_not_collected_proof(eval_kit):
     """what_bug_this_catches: pre-final descriptor shape silently gains current status."""
-    raw = context("B0a")
+    raw = context(eval_kit, "B0a")
     del raw["descriptor"]["descriptor_sha256"]
     value = collect_build_provenance(semantic_collector=lambda *args, **kwargs: raw,
-        render_collector=lambda: descriptor(), descriptor_verifier=verify_fingerprint_descriptor)
+        render_collector=lambda: eval_kit.descriptor(), descriptor_verifier=verify_fingerprint_descriptor)
     assert all(member["status"] == "unavailable" for member in value["semantic"].values())
 
 
-def test_frozen_native_context_requires_actual_prediction_trace_binding():
+def test_frozen_native_context_requires_actual_prediction_trace_binding(eval_kit):
     """what_bug_this_catches: a current observer masks predictions with no semantic trace."""
-    public, original = setup_comparison()
-    value = build()
+    public, original = eval_kit.setup_comparison()
+    value = build(eval_kit)
     frozen = frozen_with_build(public, original, value)
-    custodian = CustodianFake(frozen)
-    receipt = run_comparison(frozen, (public,), ports={"B0a": MethodFake()}, custodian=custodian,
+    custodian = eval_kit.CustodianFake(frozen)
+    receipt = run_comparison(frozen, (public,), ports={"B0a": eval_kit.MethodFake()}, custodian=custodian,
         seal=b"external-test-seal", build_observer=Observer(value))
     assert receipt["methods"]["B0a"]["status"] == "failed_unmeasured"
     assert receipt["methods"]["B0a"]["metrics"] is None and custodian.scored == []

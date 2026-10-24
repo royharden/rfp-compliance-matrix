@@ -21,6 +21,22 @@ from rfp_matrix.contracts import M3Error, NORMALIZATION_POLICY, canonical_json, 
 from .policy import policy_context, policy_status, policy_identity
 
 UNICODE_NORMALIZATION_POLICY = f"m3-nfkd-casefold-whitespace-{unicodedata.unidata_version}-v2"
+SYNTHETIC_MEDIA_TYPE = "application/x-m3-synthetic-pages"
+SYNTHETIC_PARSER = "synthetic-text-pages"
+SYNTHETIC_NOTICE = "Synthetic development source; not public-PDF quality evidence"
+
+
+def artifact_notices(artifact: Mapping[str, Any]) -> list[str]:
+    """Non-blocking provenance notices derived from immutable identity fields.
+
+    Synthetic origin is provenance, not a coverage or approval blocker; blocking
+    conditions stay in ``issues``. Quality/held-out exclusion relies on rights and
+    custody admission, never on this notice.
+    """
+    source = artifact.get("source") or {}
+    if source.get("media_type") == SYNTHETIC_MEDIA_TYPE or artifact.get("parser") == SYNTHETIC_PARSER:
+        return [SYNTHETIC_NOTICE]
+    return []
 
 
 @dataclass(frozen=True)
@@ -154,10 +170,11 @@ def parse_text_pages(pages: Sequence[str], *, source_id: str, terms: str,
         raise M3Error("file_limit", "Synthetic source exceeds input limit")
     source = {"schema_version": 1, "source_id": source_id, "raw_sha": raw_sha256(raw), "terms": terms,
               "source_url": None, "retrieved_at": None, "fictional": fictional,
-              "rights_status": "pending", "media_type": "application/x-m3-synthetic-pages"}
+              "rights_status": "pending", "media_type": SYNTHETIC_MEDIA_TYPE}
+    # Synthetic identity stays visible via media_type/parser and artifact_notices();
+    # it is deliberately not a blocking artifact issue.
     return _artifact(source, [_page(text, index, policy) for index, text in enumerate(text_pages)],
-                     parser="synthetic-text-pages", parser_version="1", policy=policy,
-                     issues=["Synthetic development source; not public-PDF quality evidence"])
+                     parser=SYNTHETIC_PARSER, parser_version="1", policy=policy)
 
 
 def _deny_network(*args: Any, **kwargs: Any) -> Any:

@@ -149,7 +149,7 @@ def install_routes(app, *, application, authority, templates):
             raise WebError(code, status) from None
 
     def present(kind, payload):
-        # D5 owns this closed presentation seam. No document-controlled function
+        # presentation.py owns this closed seam. No document-controlled function
         # name or template is evaluated; missing builders fail visibly.
         try:
             from . import presentation
@@ -232,7 +232,7 @@ def install_routes(app, *, application, authority, templates):
         if queue_name not in {"all", "pending", "approved_positive", "approved_gap", "rejected", "stale", "retired", "deferred", "not_applies", "unresolved"}:
             raise WebError("invalid_queue", 422)
         run = await call("get_run", run_id)
-        # D6 get_run binds rows and coverage to one SQLite read transaction.
+        # Application get_run binds rows and coverage to one SQLite read transaction.
         return response(request, "matrix.html", present("matrix", {"run": run, "queue": queue_name}), session=session)
 
     async def row(request):
@@ -378,7 +378,7 @@ def install_routes(app, *, application, authority, templates):
             or (relation == "removed" and old_count >= 1 and new_count == 0))
         if not valid:
             raise WebError("invalid_correspondence_relation", 422)
-        # D6 owns atomic membership/CAS/history/idempotency and actor resolution.
+        # The review application owns atomic membership/CAS/history/idempotency and actor resolution.
         # This operation never calls decide(), changes source text or reapproves.
         result = await call("record_correspondence", run_id, payload)
         if isinstance(result, dict) and result.get("status") in {"conflict", "unavailable", "pending", "error"}:

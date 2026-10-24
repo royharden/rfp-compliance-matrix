@@ -54,7 +54,7 @@ Future activation must validate changed dates/conditions, repeated clauses,
 ambiguous splits/merges, newly mandatory omissions, cross-artifact/current-generation
 races, unknown/retired IDs, exact retry versus changed payload, history/restart,
 autoescaping and no approval carry. Actual CLI comparison/confirmation commands
-follow D6's accepted source/help; do not invent command names or generations.
+follow the CLI's accepted source/help; do not invent command names or generations.
 The original public corpus/model-quality requirements and unmeasured results remain.
 
 ## Actual CLI source

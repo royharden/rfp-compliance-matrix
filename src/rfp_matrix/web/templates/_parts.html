@@ -2,6 +2,10 @@
 {% if items %}<aside class="warning" aria-label="Review warnings"><ul>{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul></aside>{% endif %}
 {%- endmacro %}
 
+{% macro notices(items) -%}
+{% if items %}<aside class="meta" aria-label="Source notices"><p>Source notices — informational provenance; not a warning, blocker or approval condition.</p><ul>{% for item in items %}<li>{{ item }}</li>{% endfor %}</ul></aside>{% endif %}
+{%- endmacro %}
+
 {% macro policy_warning(status) -%}
 {% set current = status.get('status') == 'current' and status.get('allows_current_claim') is sameas true %}
 <aside aria-label="Semantic policy provenance" class="{{ 'meta' if current else 'warning' }}">

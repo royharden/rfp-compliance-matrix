@@ -12,7 +12,7 @@ Provider absence stays distinct from intentional context exclusion. Unanchored
 tables, reading-order uncertainty and page gaps stay visible. Complete attribution
 cannot establish semantic recall or that all requirements were found.
 
-Browser GET `/runs/{run_id}/inventory` consumes D5's `inventory_audit_view` from
+Browser GET `/runs/{run_id}/inventory` consumes the presentation layer's `inventory_audit_view` from
 the application-owned audit/current snapshot. Fixed section links show all four
 dispositions, structural gaps, per-page coverage and separate human corrections.
 Text is autoescaped; missing/stale identity disables promotion.
@@ -26,7 +26,7 @@ CLI/service contract. Retained/promoted candidates and unanchored gaps are ineli
 
 The pure `promote_inventory_candidate` producer prepares a NEW PENDING row with
 immutable source lineage, human-origin metadata, needs_review evidence, pending
-validation and no positive decision. D6 resolves actor, current policy, CAS,
+validation and no positive decision. The review application resolves actor, current policy, CAS,
 idempotency, duplicate and row-limit checks and persists the correction event.
 Promotion dispatches no provider and never rewrites the original machine report.
 Exports retain the added unresolved row/lineage. Human corrections cannot count

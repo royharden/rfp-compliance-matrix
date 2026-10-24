@@ -553,7 +553,7 @@ def revise_requirements(artifact: Mapping[str, Any], corpus: Mapping[str, Any],
                         row_ids: list[str], interpretations: list[str] | None = None,
                         applicability: str | None = None, reason: str,
                         method: str = "B0a", provider: Any = None) -> list[dict[str, Any]]:
-    """Construct revisions; D2's transaction owns publication, CAS and history.
+    """Construct revisions; the review store's transaction owns publication, CAS and history.
 
     Human interpretations never rewrite literal source strings or coordinates.
     All new answers are rebuilt from the evidence assessment and remain pending.

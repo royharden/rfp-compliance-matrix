@@ -136,7 +136,7 @@ def _validate_context(value: Any, *, method: str, descriptor: Mapping[str, Any])
             or value["parser_profile"] != descriptor["identity"]["parser_profile"]
             or value["descriptor"] != descriptor or value["execution_verified"] is not False
             or value["status"] not in ("current", "missing", "restart_required")):
-        raise ValueError("Expected full normalized D5 semantic context")
+        raise ValueError("Expected full normalized source-policy semantic context")
     if digest("m3.semantic-context.v1", {k: v for k, v in value.items() if k != "context_sha"}) != value["context_sha"]:
         raise ValueError("Normalized semantic context changed")
     expected = "restart_required" if descriptor["status"] == "restart_required" else "current" if descriptor["status"] == "available" and _sha(descriptor["fingerprint"]) else "missing"

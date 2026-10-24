@@ -62,7 +62,7 @@ one-hot encodings or token logprobs must never be presented as Jev distributions
 
 ## Bounded dispatch and later activation
 
-P4.2 connects the factory to `BoundedDispatcher(transport, *, ledger)` when all
+The provider factory connects to `BoundedDispatcher(transport, *, ledger)` when all
 admission inputs are present. A missing ledger returns disabled. Construct
 `CallLedger(path, budget_usd=config.budget_usd,
 input_per_million_usd=config.input_per_million_usd,

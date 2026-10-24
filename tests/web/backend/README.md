@@ -21,16 +21,16 @@ and hostile browser behavior require later integrated independent acceptance.
 The test-only port is an ASGI scope string. It is never reserved, bound or served.
 No test fixture provides a real credential, provider budget, corpus or custody
 authorization. Secure local challenge delivery, especially Windows owner-only
-privacy and refusal when unavailable, remains D6's separately authored boundary.
+privacy and refusal when unavailable, remains the review layer's separately authored boundary.
 
-Amendment cases added under P4.8 cover scoped historical reads, closed generation
+Amendment cases cover scoped historical reads, closed generation
 queries, actor/span/approval injection rejection, stale/unknown row/revision
 conflicts, form relation/reference bounds and distinct idempotent human lineage
 with no approval carry. Their fake application models error propagation and
-adapter separation only; actual historical-store membership/CAS remains D6's
+adapter separation only; actual historical-store membership/CAS remains the review layer's
 runtime and domain-regression obligation. No fake success is a domain acceptance.
 
-Four inventory/preflight definitions under P4.10 add scoped read/promotion,
+Four inventory/preflight definitions add scoped read/promotion,
 Origin/CSRF/closed actor/span/approval rejection, stale/unknown/duplicate mapping,
 idempotent pending-only promotion, immutable machine-audit counts, independent
 typed flags and server-owned preview policy. Domain fake success never proves

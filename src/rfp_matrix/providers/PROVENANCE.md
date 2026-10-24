@@ -48,7 +48,7 @@ approval hash binds all nonsecret configuration; it records application admissio
 not independent proof that a caller has organizational authority. Secrets are
 environment names only: `TYPESAFE_API_KEY`, `OPENAI_API_KEY`.
 
-## Source identity and packaging boundary (P4.11/P4.12)
+## Source identity and packaging boundary
 
 `rfp_matrix.provenance` is application-authored stdlib code, not copied SDK
 source. The TypeSafe wheel inspection above did not vendor that wheel. The

@@ -10,7 +10,7 @@ def freeze_envelope_commitments(value: Mapping[str, Any] | None, *,
         documents: Sequence[Mapping[str, Any]], methods: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     """Bind supplied producer receipts to the freeze, without estimating again.
 
-    The D4 adapter supplies exact digests and algebraic bounds. Missing producer
+    The provider adapter supplies exact digests and algebraic bounds. Missing producer
     estimates remain unknown, not affordable/zero/measured. Real custodian
     authority must authenticate producer/source/config/budget pins independently.
     """
@@ -90,7 +90,7 @@ def freeze_envelope_commitments(value: Mapping[str, Any] | None, *,
 def pipeline_envelope_commitments(ports: Mapping[str, Any], registry_counts: Mapping[str, Mapping[str, Mapping[str, Any]]],
                                   method_configs: Mapping[str, Mapping[str, Any]], *,
                                   budget_contexts: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None) -> dict[str, Any]:
-    """Use actual D4 algebra over trusted caller-supplied registry/generation counts.
+    """Use actual provider-planner algebra over trusted caller-supplied registry/generation counts.
 
     Does not derive fake assessment/matrix generations or run retrieval to fill
     missing counts. Partial context stays partial_unknown. No factory/client/DB
@@ -124,7 +124,7 @@ def pipeline_envelope_commitments(ports: Mapping[str, Any], registry_counts: Map
             source_count = sum(span.kind == "source" for span in prepared.public.spans)
             if counts.get("inventory_candidates") != source_count or counts.get("requirement_rows") != source_count:
                 raise ValueError("Prospective blind inventory must bound all frozen candidates, not corrected/gold rows")
-            # Exactly this configured D4 producer computes bounds and digest;
+            # Exactly this configured provider producer computes bounds and digest;
             # no parallel price/fanout algorithm is implemented in evaluation.
             report = estimate_run_envelope(policy, counts, method=method, origin=config["origin"],
                                            budget_context=balances.get(document_id))

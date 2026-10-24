@@ -70,7 +70,7 @@ Registered source text is public untrusted data; adapters must not treat it as
 instructions. The outer host, real isolation and actual APIs remain unverified.
 
 The current fake-only v3 manifest optionally includes run_envelopes, produced by
-pipeline_envelope_commitments from actual D4 estimator source. See ENVELOPES.md
+pipeline_envelope_commitments from the actual provider envelope estimator source. See ENVELOPES.md
 for exact registry context and native bound/cost/unknown semantics. Frozen
 commitments and budget-policy digests must match the external seal; they are
 prospective data, separate from actual method usage and metrics. Missing estimates

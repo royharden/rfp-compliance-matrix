@@ -186,13 +186,18 @@ code{overflow-wrap:anywhere}caption{text-align:left;font-weight:bold;padding:1re
     return files
 
 
+def _same_coverage(replayed: dict, frozen: Any) -> bool:
+    from rfp_matrix.source.coverage import same_effective_coverage
+    return same_effective_coverage(replayed, frozen)
+
+
 def _validate_snapshot(store: ReviewStore, snapshot: dict) -> None:
     events = {event["event_id"]: event for event in snapshot["decision_events"]}
     if snapshot.get("coverage"):
         from rfp_matrix.source.coverage import effective_coverage
         coverage = snapshot["coverage"]
         summary = effective_coverage(snapshot["artifact"], coverage["events"])
-        if summary != coverage["effective"]:
+        if not _same_coverage(summary, coverage["effective"]):
             raise ReviewError("coverage_lineage_invalid", "Frozen coverage summary differs from full event replay.")
         source_complete = summary["complete"] and not summary.get("artifact_issues")
     else:
@@ -390,7 +395,7 @@ def verify_export(bundle_dir: str | Path) -> dict:
             from rfp_matrix.source.coverage import effective_coverage
             coverage = manifest["snapshot"]["coverage"]
             if (manifest.get("render_policy") != manifest["snapshot"]["export_render_policy"] or manifest.get("coverage") != coverage
-                    or effective_coverage(manifest["snapshot"]["artifact"], coverage["events"]) != coverage["effective"]):
+                    or not _same_coverage(effective_coverage(manifest["snapshot"]["artifact"], coverage["events"]), coverage["effective"])):
                 raise ValueError("coverage audit")
         if manifest["snapshot"].get("export_render_policy") in {_AUDIT_RENDER_POLICY, _RENDER_POLICY}:
             inventory_review = manifest["snapshot"]["inventory_review"]

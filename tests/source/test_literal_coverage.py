@@ -8,8 +8,9 @@ import pytest
 
 from rfp_matrix.contracts import M3Error, NORMALIZATION_POLICY, digest
 from rfp_matrix.source import (
-    anchor_from_normalized, effective_coverage, make_anchor, make_coverage_decision,
-    normalize_with_alignment, parse_text_pages, resolve_anchor, resolve_context, structural_segments,
+    anchor_from_normalized, artifact_notices, effective_coverage, make_anchor, make_coverage_decision,
+    normalize_with_alignment, parse_text_pages, resolve_anchor, resolve_context, same_effective_coverage,
+    structural_segments,
 )
 
 
@@ -30,6 +31,21 @@ def inspection(value, *, page=0, action="accept_blank", request="inspect-1", pre
         reason="Reviewer inspected the original authored page", actor="application-resolved-reviewer",
         request_id=request, expected_revision=previous["revision"] if previous else None,
         previous=previous, inspected_original=inspected)
+
+
+def test_synthetic_origin_is_a_notice_not_a_blocking_artifact_issue():
+    """what_bug_this_catches: the synthetic provenance label blocks coverage/approval on every authored fixture."""
+    value = artifact("The vendor shall log events.")
+    assert value["issues"] == [] and value["complete"] is True
+    assert value["source"]["media_type"] == "application/x-m3-synthetic-pages" and value["parser"] == "synthetic-text-pages"
+    summary = effective_coverage(value)
+    assert summary["complete"] is True and summary["artifact_issues"] == []
+    assert summary["artifact_notices"] == artifact_notices(value) and len(summary["artifact_notices"]) == 1
+    assert artifact_notices({"source": {"media_type": "application/pdf"}, "parser": "pdfplumber-native"}) == []
+    legacy = {key: item for key, item in summary.items() if key != "artifact_notices"}
+    assert same_effective_coverage(summary, legacy) and same_effective_coverage(summary, summary)
+    assert not same_effective_coverage(summary, {**legacy, "complete": False})
+    assert not same_effective_coverage(summary, {**summary, "artifact_notices": []})
 
 
 def test_repeated_quote_keeps_second_original_coordinates():

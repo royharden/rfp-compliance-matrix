@@ -43,7 +43,7 @@ amendment correspondence row references always use the content `row_revision`.
 Coverage fields are `page_index` (zero-based), `action`, `expected_artifact_sha`,
 `expected_page_hash`, `expected_matrix_generation`, `expected_coverage_revision`
 (null for first event), `request_id`, `reason`, optional `inspected_original`.
-The nested D5 pure event has no application timestamp/envelope fields. Acceptance
+The nested pure coverage event has no application timestamp/envelope fields. Acceptance
 requires an explicit inspection of the original; image/error/unsupported pages
 cannot become supported extraction by acknowledgement.
 
@@ -71,7 +71,7 @@ The reference is an operator attestation; the product does not claim to verify
 an external machine-specific ledger. No port is claimed by importing this code.
 
 Optional dependencies are lazy. Missing extras fail visibly and never trigger an
-installation. Local login uses D4's one-time capability/CSRF/session authority,
+installation. Local login uses the web layer's one-time capability/CSRF/session authority,
 scoped to the supplied run IDs and derived reviewer subject. Explicit private-file
 delivery creates a new local owner-readable `login.json`. Only its nonsecret path,
 login URL and expiry are announced. The user reads it privately; the program never
@@ -100,7 +100,7 @@ cross-process privacy have not been exercised.
 
 `ReviewerApplication.amendments(run_id, previous_matrix_generation=None)` returns
 `{schema_version, run_id, matrix_generation, comparison, human_events,
-correspondence_revision, approval_carry_allowed:false}`. The pure D5 comparison
+correspondence_revision, approval_carry_allowed:false}`. The pure evidence-layer comparison
 report is unmodified; human history is a separate envelope. Default comparison
 uses the latest owned historical snapshot from a preceding assessment generation.
 An explicit previous matrix must exist in this same run's durable history. Lookup
@@ -186,7 +186,7 @@ authentication or an authorization to spend.
 The application derives candidate/window/current-row/retrieval counts from actual
 deterministic registered source and corpus bytes. Pure request-body construction
 supplies input-cap diagnostics; no SDK/client, key, live ledger or transport is
-invoked. D4's unmodified estimator returns algebraic worst-case bundled requests,
+invoked. The provider layer's unmodified estimator returns algebraic worst-case bundled requests,
 retry/token/concurrency/deadline/declared-cost bounds with explicit assumptions.
 The wrapper is `{run_id,matrix_generation,assessment_generation,envelope,
 registry_derivation,dispatch_performed:false,runtime_verified:false}`. Unknown
@@ -205,7 +205,7 @@ constitute measured usage, model quality, live authorization or runtime acceptan
 
 Repeatable `--review-policy-config FILE` is supported **only** on `review`
 (including `--interactive` TUI), `decide`, `resume`, `export`, `policy-status` and
-optional `serve`. Each nonsecret file is a D4 ProviderConfig with disabled
+optional `serve`. Each nonsecret file is a provider-layer ProviderConfig with disabled
 dispatch, zero budget, no admission reference or approved-config field, exact
 method/model/SDK/question/source-policy/semantic pins, and exact document_id
 (run_id), source_sha256 (artifact_sha) and corpus_sha256 (corpus generation).
@@ -216,12 +216,12 @@ run-envelope or run-approval. No HTTP form/request can select a config/path.
 
 `review.policy_binding.bind_review_policies(store, configurations, *, run_ids)`
 is the explicit operation: validate all owned scopes, collect actual current
-semantic descriptors, call D4's pure `review_policy_identity` and then set
+semantic descriptors, call the provider layer's pure `review_policy_identity` and then set
 `store.policy_provider`. `ReviewPolicyBindings` constructor only stores supplied
 `ReviewPolicyBinding(config, identity)` objects; no descriptor collection or I/O.
-Its `resolve(snapshot, method)` returns that exact D4 frozen inert identity or
+Its `resolve(snapshot, method)` returns that exact frozen inert provider identity or
 None, after rechecking the run/source/corpus. It never becomes a JudgmentPort.
-Currentness unwraps per run/method before invoking D5 assessment_policy_status;
+Currentness unwraps per run/method before invoking the evidence layer's assessment_policy_status;
 it never compares the full disabled admission config SHA to historical inference.
 The provider owner rejects nonzero/enabled/approved identities and missing SDK
 metadata; there is no inference-factory, key, SDK-import, ledger or tape path.
@@ -235,7 +235,7 @@ file is rejected as unnecessary. An existing process recollects actual current
 semantics on meaningful reads/decisions/export/recovery; drift requires restart.
 The bootstrap/private-file/server security contract remains unchanged.
 
-Matching read-only identity is only a necessary policy check. D5's separately
+Matching read-only identity is only a necessary policy check. The evidence layer's separately
 captured stable review-policy receipt must come from a genuine NEW assessment;
 historical receipt absence stays legacy. No file/handle reconstructs a receipt,
 refreshes evidence or rebinds an old approval. Source/semantic changes still

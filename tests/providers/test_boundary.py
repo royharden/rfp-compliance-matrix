@@ -1,4 +1,5 @@
 """Unrun provider boundary regressions; no observed live output is used."""
+import copy
 from dataclasses import replace
 import json
 
@@ -54,9 +55,10 @@ def test_jev_copies_full_distribution_and_registered_choices(policy, sdk_factory
     assert result["answers"]["relation"]["probabilities"] == probabilities
     assert result["origin"] == "mock" and result["model"] is None
     assert client.calls[0]["retry"] == {"max_retries": 0}
-    raw["answers"]["selection"]["choice"] = "invented-window"
+    tampered = copy.deepcopy(result)
+    tampered["answers"]["selection"]["choice"] = "invented-window"
     with pytest.raises(M3Error, match="Unregistered"):
-        validate_judgment(result, questions)
+        validate_judgment(tampered, questions)
 
 
 @pytest.mark.parametrize("probability", [True, float("nan"), -0.1, 1.1])

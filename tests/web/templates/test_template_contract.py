@@ -4,9 +4,12 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from rfp_matrix.web.presentation import build_view, coverage_view, matrix_view, row_view
+
+# Optional `web` extra: skip this module instead of aborting keyless collection.
+jinja2 = pytest.importorskip("jinja2")
+Environment, FileSystemLoader, StrictUndefined = jinja2.Environment, jinja2.FileSystemLoader, jinja2.StrictUndefined
 
 HOSTILE = '<script>alert("rfp")</script><img src=x onerror="alert(1)"> & "quoted"'
 
@@ -144,6 +147,20 @@ def test_unsupported_coverage_has_no_acceptance_options_and_exact_fields(environ
     assert form["fields"]["page_index"] == "0"
     assert form["fields"]["expected_coverage_revision"] == ""
     assert "UNRESOLVED" in html
+
+
+def test_artifact_notice_rendered_escaped_as_neutral_meta_not_warning(environment):
+    """what_bug_this_catches: a non-blocking source notice renders as markup, as a warning, or disables inspection."""
+    snapshot, _ = snapshot_row()
+    envelope = deepcopy(snapshot["coverage"])
+    envelope["effective"]["artifact_notices"] = [HOSTILE]
+    vm = {**coverage_view(envelope), "run_id": "run-1", "matrix_generation": "e" * 64}
+    html = render(environment, "coverage.html", vm)
+    assert HOSTILE not in html and "&lt;script&gt;" in html
+    assert '<aside class="meta" aria-label="Source notices">' in html
+    assert 'aria-label="Review warnings"' not in html
+    assert "complete under the recorded policy" in html
+    assert any(f["action"].endswith("/coverage/inspect") for f in Forms(html).forms)
 
 
 def test_login_password_not_echoed_and_form_is_closed(environment):

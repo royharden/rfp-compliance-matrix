@@ -1,4 +1,4 @@
-"""Unrun synthetic protocol cases; fakes below are not real custody or human gold."""
+"""Unrun synthetic protocol cases; eval_kit fakes (conftest) are not real custody or human gold."""
 from dataclasses import replace
 import json
 
@@ -7,72 +7,15 @@ import pytest
 from rfp_matrix.eval.corpus import near_duplicate_report, validate_annotations
 from rfp_matrix.eval.custody import VerifiedGrant, consume_seal_state
 from rfp_matrix.eval.pipeline import RecordingPort
-from rfp_matrix.eval.runner import (
-    Authorization, PublicInput, PublicSpan, fingerprint, freeze_comparison,
-    run_comparison, sha,
-)
+from rfp_matrix.eval.runner import fingerprint, run_comparison, sha
 
 
-def setup_comparison():
-    source = PublicSpan("S", "source", sha(b"artifact"), 0, 0, 4, "must")
-    evidence = PublicSpan("E", "evidence", sha(b"vendor"), 0, 0, 3, "yes", "vendor-record")
-    public = PublicInput("public-doc", "family-a", b"%PDF-synthetic-protocol-bytes",
-                         b'{"fictional":true}', sha(b"rights-fixture"), "verified", (source, evidence))
-    pins = {k: sha(k.encode()) for k in ("source", "parser", "normalizer", "questions", "thresholds", "split", "labels", "scorer", "budget", "price")}
-    configs = {m: {"config_sha": sha(m.encode()), "model_snapshot": "fixture-exact",
-                  "sdk_snapshot": "fixture-sdk-exact", "price_sha": pins["price"],
-                  "budget_sha": pins["budget"], "origin": "baseline" if m == "B0a" else "mock"}
-               for m in ("B0a", "B0b", "F1", "F2")}
-    frozen = freeze_comparison((public,), split="dev", pins=pins, method_configs=configs,
-                               dataset_counts={"documents": 1, "families": 1})
-    return public, frozen
-
-
-class CustodianFake:
-    """In-memory fixture only; it authenticates no actual principal/independence."""
-
-    def __init__(self, frozen, *, disclose=False):
-        self.frozen, self.disclose, self.spent = frozen, disclose, False
-        self.scored = []
-
-    def authorize_and_consume(self, *, frozen_manifest, seal):
-        if self.spent or seal != b"external-test-seal" or frozen_manifest != self.frozen.canonical_manifest:
-            raise ValueError("Fixture denial")
-        self.spent = True
-        manifest = json.loads(frozen_manifest)
-        return Authorization(self.frozen.digest, manifest["input_sha"], manifest["pins"]["split"],
-            manifest["pins"]["labels"], sha(seal), sha(b"fixture-authorization"), self.disclose)
-
-    def score(self, *, authorization, method, predictions):
-        self.scored.append(method)
-        return {"population_sha": fingerprint({"input_sha": authorization.input_sha,
-                "labels_sha": authorization.labels_sha, "split_sha": authorization.split_sha}),
-                "inventory_recall": {"numerator": 0, "denominator": 1},
-                "failure_ids": ["case-a"], "mandatory_miss_ids": ["g-miss"]}
-
-
-class MethodFake:
-    def __init__(self, *, fail=False, atom_id="p"):
-        self.seen, self.fail, self.atom_id = [], fail, atom_id
-
-    def predict(self, *, method, document, config):
-        self.seen.append((document, config))
-        if self.fail:
-            raise ValueError("PRIVATE_EXCEPTION_SENTINEL")
-        return {"document_id": document.document_id, "atoms": [{"id": self.atom_id,
-            "source_span_ids": ["S"], "mandatory": True, "conditional": False,
-            "administrative": False, "uncertain": False}], "assessments": [{"atom_id": self.atom_id,
-            "status": "supported", "retrieved_ids": ["vendor-record"], "support_ids": ["E"],
-            "counterevidence_ids": []}], "usage": {"input_tokens": None, "output_tokens": None,
-            "cost_usd": None, "latency_ms": None}}
-
-
-def test_closed_public_inputs_no_gold_and_missing_arms_unmeasured():
+def test_closed_public_inputs_no_gold_and_missing_arms_unmeasured(eval_kit):
     """what_bug_this_catches: seal/private label metadata leaks into method requests."""
-    public, frozen = setup_comparison()
-    port = MethodFake()
+    public, frozen = eval_kit.setup_comparison()
+    port = eval_kit.MethodFake()
     receipt = run_comparison(frozen, (public,), ports={"B0a": port},
-                             custodian=CustodianFake(frozen), seal=b"external-test-seal")
+                             custodian=eval_kit.CustodianFake(frozen), seal=b"external-test-seal")
     document, config = port.seen[0]
     assert set(vars(document)) == {"document_id", "family_id", "pdf", "vendor_jsonl", "rights_record_sha", "rights_status", "spans"}
     assert set(config) == {"config_sha", "model_snapshot", "sdk_snapshot", "price_sha", "budget_sha", "origin"}
@@ -82,48 +25,48 @@ def test_closed_public_inputs_no_gold_and_missing_arms_unmeasured():
     assert receipt["public_quality_claim"] is False
 
 
-def test_exception_sanitized_and_failed_arm_unmeasured():
+def test_exception_sanitized_and_failed_arm_unmeasured(eval_kit):
     """what_bug_this_catches: arbitrary exception secrets become public receipts/scores."""
-    public, frozen = setup_comparison()
-    receipt = run_comparison(frozen, (public,), ports={"F1": MethodFake(fail=True)},
-                             custodian=CustodianFake(frozen), seal=b"external-test-seal")
+    public, frozen = eval_kit.setup_comparison()
+    receipt = run_comparison(frozen, (public,), ports={"F1": eval_kit.MethodFake(fail=True)},
+                             custodian=eval_kit.CustodianFake(frozen), seal=b"external-test-seal")
     assert receipt["methods"]["F1"]["status"] == "failed_unmeasured"
     assert receipt["methods"]["F1"]["metrics"] is None
     assert "PRIVATE_EXCEPTION_SENTINEL" not in json.dumps(receipt)
 
 
-def test_changed_raw_pin_and_wrong_seal_denied_before_method():
+def test_changed_raw_pin_and_wrong_seal_denied_before_method(eval_kit):
     """what_bug_this_catches: post-freeze input/pin mutation or foreign seal is admitted."""
-    public, frozen = setup_comparison()
-    port = MethodFake()
+    public, frozen = eval_kit.setup_comparison()
+    port = eval_kit.MethodFake()
     with pytest.raises(ValueError):
         run_comparison(frozen, (replace(public, pdf=b"changed"),), ports={"B0a": port},
-                       custodian=CustodianFake(frozen), seal=b"external-test-seal")
+                       custodian=eval_kit.CustodianFake(frozen), seal=b"external-test-seal")
     with pytest.raises(ValueError):
         run_comparison(replace(frozen, digest=sha(b"other")), (public,), ports={"B0a": port},
-                       custodian=CustodianFake(frozen), seal=b"external-test-seal")
+                       custodian=eval_kit.CustodianFake(frozen), seal=b"external-test-seal")
     with pytest.raises(ValueError):
         run_comparison(frozen, (public,), ports={"B0a": port},
-                       custodian=CustodianFake(frozen), seal=b"foreign-seal")
+                       custodian=eval_kit.CustodianFake(frozen), seal=b"foreign-seal")
     assert port.seen == []
 
 
-def test_spent_even_if_prediction_fails_and_disclosure_explicit():
+def test_spent_even_if_prediction_fails_and_disclosure_explicit(eval_kit):
     """what_bug_this_catches: failed runs recycle held-out input or silently disclose misses."""
-    public, frozen = setup_comparison()
-    custodian = CustodianFake(frozen, disclose=True)
-    receipt = run_comparison(frozen, (public,), ports={"B0a": MethodFake(), "F1": MethodFake(fail=True)},
+    public, frozen = eval_kit.setup_comparison()
+    custodian = eval_kit.CustodianFake(frozen, disclose=True)
+    receipt = run_comparison(frozen, (public,), ports={"B0a": eval_kit.MethodFake(), "F1": eval_kit.MethodFake(fail=True)},
                              custodian=custodian, seal=b"external-test-seal")
     assert receipt["methods"]["B0a"]["metrics"]["diagnostics"]["mandatory_miss_ids"] == ["g-miss"]
     with pytest.raises(ValueError):
         run_comparison(frozen, (public,), ports={}, custodian=custodian, seal=b"external-test-seal")
 
 
-def test_b0b_and_f1_must_share_inventory_before_scorer():
+def test_b0b_and_f1_must_share_inventory_before_scorer(eval_kit):
     """what_bug_this_catches: extraction drift is hidden in the matching-only ablation."""
-    public, frozen = setup_comparison()
-    custodian = CustodianFake(frozen)
-    receipt = run_comparison(frozen, (public,), ports={"B0b": MethodFake(atom_id="p1"), "F1": MethodFake(atom_id="p2")},
+    public, frozen = eval_kit.setup_comparison()
+    custodian = eval_kit.CustodianFake(frozen)
+    receipt = run_comparison(frozen, (public,), ports={"B0b": eval_kit.MethodFake(atom_id="p1"), "F1": eval_kit.MethodFake(atom_id="p2")},
                              custodian=custodian, seal=b"external-test-seal")
     assert receipt["matching_ablation"] == "inventory_mismatch"
     assert receipt["methods"]["F1"]["status"] == "failed_inventory_mismatch"

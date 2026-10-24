@@ -31,7 +31,7 @@ def run_envelope(store, run_id: str, policy_context: Mapping[str, Any]) -> dict:
     if config_value is None:
         if method != "B0a":
             raise ReviewError("preflight_config_required", "Typed bounds need an explicit exact nonsecret provider policy; no model/price pin is inferred.")
-        # These are D4's declared disabled defaults, not observed model/SDK pins.
+        # These are the provider layer's declared disabled defaults, not observed model/SDK pins.
         # B0a's envelope exposes no provider model/SDK and makes zero calls.
         config = ProviderConfig.from_mapping({"enabled": False, "budget_usd": "0", "document_id": run_id,
             "source_sha256": artifact["artifact_sha"], "corpus_sha256": corpus["generation"]})
