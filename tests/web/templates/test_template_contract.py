@@ -220,3 +220,65 @@ def test_committed_inventory_download_uses_fixed_scoped_route(environment):
     assert f"/runs/run-1/export-files/X-{'b' * 32}/inventory-audit.json" in links
     assert "evil.invalid" not in html and "../inventory-audit.json" not in html
     assert "(historical)" in html
+
+
+@pytest.mark.parametrize("status,allows", [("missing", True), ("mismatch", True), ("restart_required", True), ("current", False)])
+def test_policy_notice_requires_consistent_current_state(environment, status, allows):
+    """what_bug_this_catches: a true marker alone suppresses noncurrent-policy warnings."""
+    macro = environment.get_template("_parts.html").module.policy_warning
+    html = str(macro({"status": status, "allows_current_claim": allows, "reasons": [HOSTILE]}))
+    assert 'class="warning"' in html
+    assert "Current semantic approval cannot be asserted" in html
+    assert HOSTILE not in html and "&lt;script&gt;" in html
+
+
+def test_missing_typed_policy_is_actionable_without_browser_policy_fields(environment):
+    """what_bug_this_catches: missing typed policy is repaired via a model/config HTTP form."""
+    snapshot, row = snapshot_row()
+    row["assessment"]["method"] = "F1"
+    snapshot["policy_status"] = {"status": "missing", "allows_current_claim": False,
+        "reasons": [], "action": "supply_review_policy_config", "config": "PRIVATE_CONFIG_SENTINEL",
+        "policy_input": "review-policy-identity-only-v1"}
+    vm = row_view(snapshot, row)
+    html = render(environment, "row.html", vm)
+    assert "--review-policy-config" in html and "The browser cannot change policy" in html
+    assert "PRIVATE_CONFIG_SENTINEL" not in html
+    assert vm["controls"]["actions"] == [] and vm["row"]["approved_answer"] is None
+    assert not any(f["action"].endswith("/decide") for f in Forms(html).forms)
+    for form in Forms(html).forms:
+        assert not set(form["fields"]) & {"provider", "config", "review_policy_config", "allow_live", "actor", "model"}
+
+
+def test_captured_review_receipt_cannot_self_authorize_currentness(environment):
+    """what_bug_this_catches: an assessment receipt or purpose string becomes current authority."""
+    snapshot, row = snapshot_row()
+    del snapshot["policy_status"]
+    row["assessment"].update(method="F1", review_policy_identity={
+        "purpose": "review-policy-identity-only-v1", "status": "available", "allows_current_claim": True})
+    row.update(approval="approved_positive", decision_event_id="fixture-event")
+    row["validation"]["state"] = "validated"
+    vm = row_view(snapshot, row)
+    assert vm["policy_status"]["allows_current_claim"] is False
+    assert vm["row"]["approved_answer"] is None and vm["controls"]["actions"] == []
+    html = render(environment, "row.html", vm)
+    assert "NO CURRENT APPROVED COMMITMENT" in html
+    assert not any(f["action"].endswith("/decide") for f in Forms(html).forms)
+
+
+def test_matching_policy_does_not_promote_f2_or_change_decision_cas(environment):
+    """what_bug_this_catches: read-only policy match calibrates F2 or substitutes content CAS."""
+    snapshot, row = snapshot_row()
+    row["decision_revision"] = "opaque-decision-cas-v2"
+    snapshot["policy_status"]["policy_input"] = "review-policy-identity-only-v1"
+    vm = row_view(snapshot, row)
+    html = render(environment, "row.html", vm)
+    decisions = [f for f in Forms(html).forms if f["action"].endswith("/decide")]
+    assert decisions and all(f["fields"]["expected_row_revision"] == "opaque-decision-cas-v2" for f in decisions)
+    row["assessment"].update(method="F2", status="needs_review", complete=False)
+    row.update(approval="approved_positive", decision_event_id="fixture-event")
+    row["validation"]["state"] = "validated"
+    f2 = row_view(snapshot, row)
+    assert "approve_positive" not in f2["controls"]["actions"]
+    assert f2["row"]["approved_answer"] is None
+    f2_html = render(environment, "row.html", f2)
+    assert 'value="approve_positive"' not in f2_html and "NO CURRENT APPROVED COMMITMENT" in f2_html

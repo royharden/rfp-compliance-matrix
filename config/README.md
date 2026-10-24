@@ -31,3 +31,14 @@ account authorization, license clearance or security attestation.
 
 The keyless example remains disabled with zero budget. No descriptor, real
 approval, source collector output, credential or measured price is embedded.
+
+For a later review session, the separately supplied nonsecret
+`--review-policy-config` input (CLI owner) targets
+`review_policy_identity(config, semantic_provenance=actual_current_descriptor)`.
+Use disabled/zero budget and empty admission/approval fields; retain exact
+method/model/SDK/question/source/document/artifact/corpus/semantic identities.
+No model request, ledger or live approval is needed for this read-only handle.
+An unavailable/restart-required handle cannot establish current policy. Its
+presence cannot refresh evidence, transfer approval or bypass decision CAS.
+It cannot serve as an inference/evaluation port. Actual command coverage and
+per-run binding are owned by the CLI/application, separately from this factory.

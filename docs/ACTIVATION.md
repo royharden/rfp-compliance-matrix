@@ -75,3 +75,11 @@ REVIEW-WORKFLOW.md. Export policy m3.complete-inventory.policy.v4 preserves
 legacy rendering branches while freezing policy currentness for new exports.
 Later execution must verify the final source allowlist includes all semantic
 authority helpers and that every shipped template/CSS resource is packaged.
+
+Later-session typed review additionally needs validation of the explicit
+read-only review-policy config path: no SDK transport/keys/DB in identity factory,
+missing/mismatched SDK/source/corpus/method/model stays noncurrent, wrong-run
+serve isolation, no live-enable combinations, unchanged decision CAS and no
+evidence rebind. Exercise actual reopening/decide/export/resume and optional web
+flows only after mode closure. A matching review handle must be rejected as an
+evaluation predictor and preserve mock/replay origins. No such checks ran here.

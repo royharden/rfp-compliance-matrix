@@ -24,7 +24,8 @@ def test_public_binding_and_currentness_sources_are_semantic():
     """what_bug_this_catches: public rebinding or currentness code escapes invalidation."""
     assert "source/__init__.py" in p.GROUPS["parse"]
     assert {"source/__init__.py", "evidence/__init__.py", "review/currentness.py",
-            "review/reassessment.py", "review/inventory.py"} <= set(p.GROUPS["validate"])
+            "review/reassessment.py", "review/inventory.py", "review/policy_binding.py",
+            "providers/review_identity.py"} <= set(p.GROUPS["validate"])
 
 
 def test_python_canonicalization_ignores_format_docs_but_tracks_code():

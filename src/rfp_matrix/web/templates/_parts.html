@@ -3,9 +3,11 @@
 {%- endmacro %}
 
 {% macro policy_warning(status) -%}
-<aside aria-label="Semantic policy provenance" class="{{ 'meta' if status.get('allows_current_claim') is sameas true else 'warning' }}">
+{% set current = status.get('status') == 'current' and status.get('allows_current_claim') is sameas true %}
+<aside aria-label="Semantic policy provenance" class="{{ 'meta' if current else 'warning' }}">
   <strong>Semantic policy: {{ status.get('status', 'missing') }}</strong>
-  {% if status.get('allows_current_claim') is not sameas true %}<p>Current semantic approval cannot be asserted from this view. Inspect history and explicitly reimport/reassess; restart first if the process source has drifted.</p>{% endif %}
+  {% if not current %}<p>Current semantic approval cannot be asserted from this view. Inspect history and explicitly reimport/reassess; restart first if the process source has drifted.</p>
+  {% if status.get('status') == 'missing' %}<p>For previously computed typed work, the trusted local operator can supply this run's disabled read-only policy with --review-policy-config. The browser cannot change policy or enable a model call. A policy match alone does not refresh evidence or approve a row.</p>{% endif %}{% endif %}
   {% if status.get('reasons') %}<ul>{% for reason in status.get('reasons', []) %}<li>{{ reason }}</li>{% endfor %}</ul>{% endif %}
   <p class="meta">Recorded <code>{{ status.get('recorded_fingerprint', '') }}</code> · Current <code>{{ status.get('current_fingerprint', '') }}</code>. Source integrity is not proof of executed assessment, compatibility, security or model quality.</p>
 </aside>

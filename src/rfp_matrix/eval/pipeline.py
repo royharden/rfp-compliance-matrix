@@ -13,7 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable, Mapping
 
-from .runner import PublicInput, PublicSpan, canonical, fingerprint, sha
+from .runner import PublicInput, PublicSpan, canonical, fingerprint, sha, _is_review_identity
 
 
 def extract_pdf_bytes(raw: bytes, *, document_id: str, terms: str) -> Mapping[str, Any]:
@@ -88,6 +88,8 @@ class RecordingPort:
     """Closed producer request allowlists; outcomes retained by digest, never logs."""
 
     def __init__(self, delegate: Any) -> None:
+        if _is_review_identity(delegate) or not callable(getattr(delegate, "judge", None)):
+            raise ValueError("Evaluation needs a judgment port; read-only policy identity cannot judge")
         self.delegate, self.receipts = delegate, []
         self.requested_model = getattr(getattr(delegate, "config", None), "model", getattr(delegate, "requested_model", None))
 
@@ -141,6 +143,8 @@ class PipelineMethodPort:
                  inventory_cache: dict[str, str] | None = None) -> None:
         if method not in ("B0a", "B0b", "F1", "F2"):
             raise ValueError("Unknown comparison arm")
+        if _is_review_identity(factory):
+            raise ValueError("Read-only review identity cannot be a prediction factory")
         self.method, self.prepared = method, {p.public.document_id: p for p in prepared}
         if len(self.prepared) != len(prepared):
             raise ValueError("Duplicate prepared document")

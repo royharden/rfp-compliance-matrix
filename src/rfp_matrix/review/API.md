@@ -201,9 +201,65 @@ Web preview uses server-owned context only. None of these bounds or source check
 constitute measured usage, model quality, live authorization or runtime acceptance.
 # Policy currentness and explicit reassessment
 
+## Later-session typed review identity (comparison only)
+
+Repeatable `--review-policy-config FILE` is supported **only** on `review`
+(including `--interactive` TUI), `decide`, `resume`, `export`, `policy-status` and
+optional `serve`. Each nonsecret file is a D4 ProviderConfig with disabled
+dispatch, zero budget, no admission reference or approved-config field, exact
+method/model/SDK/question/source-policy/semantic pins, and exact document_id
+(run_id), source_sha256 (artifact_sha) and corpus_sha256 (corpus generation).
+No model name, SDK or semantic pin is inferred from an old answer. This identity
+does not enable inference, validate prose, attest execution or confer approval.
+The CLI rejects mixing it with provider-config, allow-live, replay-tape,
+run-envelope or run-approval. No HTTP form/request can select a config/path.
+
+`review.policy_binding.bind_review_policies(store, configurations, *, run_ids)`
+is the explicit operation: validate all owned scopes, collect actual current
+semantic descriptors, call D4's pure `review_policy_identity` and then set
+`store.policy_provider`. `ReviewPolicyBindings` constructor only stores supplied
+`ReviewPolicyBinding(config, identity)` objects; no descriptor collection or I/O.
+Its `resolve(snapshot, method)` returns that exact D4 frozen inert identity or
+None, after rechecking the run/source/corpus. It never becomes a JudgmentPort.
+Currentness unwraps per run/method before invoking D5 assessment_policy_status;
+it never compares the full disabled admission config SHA to historical inference.
+The provider owner rejects nonzero/enabled/approved identities and missing SDK
+metadata; there is no inference-factory, key, SDK-import, ledger or tape path.
+
+For multi-run serve, repeat both `--run` and the policy flag as needed, one
+configuration per distinct run/method. Out-of-grant, stale source/corpus,
+nonmatching active method and duplicate run/method configurations are errors.
+Absent bindings remain missing/read-only for that run; another run's file is
+never reused. Baseline B0a needs no typed policy or optional SDK; a B0a policy
+file is rejected as unnecessary. An existing process recollects actual current
+semantics on meaningful reads/decisions/export/recovery; drift requires restart.
+The bootstrap/private-file/server security contract remains unchanged.
+
+Matching read-only identity is only a necessary policy check. D5's separately
+captured stable review-policy receipt must come from a genuine NEW assessment;
+historical receipt absence stays legacy. No file/handle reconstructs a receipt,
+refreshes evidence or rebinds an old approval. Source/semantic changes still
+require real reimport/reassessment; wrong model/SDK or missing context remains
+blocked. F2 labels remain uncalibrated/needs-review, and mock/replay origins do
+not become live. Original content revision, opaque decision CAS and other
+approval gates remain mandatory. These are source interfaces, unrun here.
+
+Example future command shapes (nonsecret policy already supplied by operator;
+neither these commands nor any service was run during Dirty Mode):
+
+```
+review --run R --review-policy-config REVIEW.json
+review --run R --interactive --review-policy-config REVIEW.json
+policy-status --run R --review-policy-config REVIEW.json
+serve --run R1 --run R2 --review-policy-config R1-REVIEW.json
+      --review-policy-config R2-REVIEW.json --port CLAIMED_PORT
+      --port-claim-reference REF --private-login-delivery
+```
+
 `ReviewStore(state_dir, *, policy_provider=None)` accepts an optional **trusted
-application-injected** actual judgment port for current provider/model/SDK policy
-comparison. It never collects semantic fingerprints in construction and never
+application-injected** actual judgment port or run-scoped read-only bindings for
+current provider/model/SDK policy comparison. Neither is called for inference by
+the currentness path. It never collects semantic fingerprints in construction and never
 infers a provider from request text or a stored model name. Typed currentness
 without that actual port is `missing`; keyless B0a requires no optional SDK.
 

@@ -14,7 +14,7 @@ from rfp_matrix.contracts import (
 )
 from rfp_matrix.providers import build_questions
 from rfp_matrix.source import make_anchor, policy_context, policy_identity, policy_status, resolve_anchor, validate_artifact
-from .consumer import ENGINE_POLICY, assessment_generation, assessment_policy, call_judgment, check_provider_sources, judgment_port, provider_identity
+from .consumer import ENGINE_POLICY, assessment_generation, assessment_policy, assessment_review_identity, call_judgment, check_provider_sources, judgment_port, provider_identity
 
 METHODS = {"B0a", "B0b", "F1", "F2"}
 _MODAL = re.compile(r"\b(shall|must|required|requires|mandatory|submit|submission|deadline|due|provide|include)\b", re.I)
@@ -503,6 +503,10 @@ def assess_requirement(requirement: Mapping[str, Any], corpus: Mapping[str, Any]
         "judgments": judgments, "usage": {"requests": usages} if usages else None,
         "validation": {"schema_version": 1, "state": "pending", "method": "restricted_template", "provenance": origin,
             "reason": "Explicit reviewer assessment must validate the exact claim, literal pointers and applicability"}}
+    value = validate_record("assessment", value)
+    receipt = assessment_review_identity(value, port)
+    if receipt is not None:
+        value["review_policy_identity"] = receipt
     return validate_record("assessment", value)
 
 

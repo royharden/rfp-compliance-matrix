@@ -87,3 +87,10 @@ not just shape. No live dispatch, measured cost or product/model-quality accepta
 follows from a bound or a frozen public receipt.
 
 See [frozen build provenance](eval/BUILD-PROVENANCE.md) for full normalized semantic contexts, separate render identity, changed-pin refusal and explicit legacy limitations. Descriptors establish integrity only; runtime, security and quality remain unverified.
+
+Later-process typed review has a separate provider-owned read-only identity
+factory, consumed by evidence/currentness and explicitly bound by the trusted CLI
+application. It has no inference capability. D7 evaluation rejects an identity
+handle as a predictor; prospective identity cannot become a measured prediction
+receipt. See [typed review](docs/TYPED-REVIEW.md). Source, runtime, security and
+quality acceptance remain distinct; no new path has been executed.

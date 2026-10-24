@@ -180,6 +180,7 @@ class EvidenceAssessment(Wire):
     usage: dict[str, Any] | None = None
     validation: Validation
     policy_provenance: dict[str, Any] | None = None
+    review_policy_identity: dict[str, Any] | None = None
 
 
 T = TypeVar("T", bound=Wire)
@@ -199,6 +200,8 @@ def validate_record(record_type: type[T] | str, value: Mapping[str, Any]) -> dic
         # assessment or row content identities merely by validating old bytes.
         if cls in {DocumentArtifact, EvidenceAssessment} and "policy_provenance" not in value:
             result.pop("policy_provenance", None)
+        if cls is EvidenceAssessment and "review_policy_identity" not in value:
+            result.pop("review_policy_identity", None)
         return result
     except (ValueError, TypeError) as exc:
         raise M3Error("invalid_wire", f"Invalid {cls.__name__}", detail=str(exc)) from exc

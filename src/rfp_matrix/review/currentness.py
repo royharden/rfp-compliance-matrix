@@ -24,7 +24,13 @@ def policy_review(snapshot: dict, *, provider=None) -> dict:
         else:
             if method not in contexts:
                 contexts[method] = policy_context(method)
-            status = assessment_policy_status(row["assessment"], current_context=contexts[method], provider=provider)
+            from .policy_binding import ReviewPolicyBindings
+            try:
+                selected_provider = provider.resolve(snapshot, method) if isinstance(provider, ReviewPolicyBindings) else provider
+                status = assessment_policy_status(row["assessment"], current_context=contexts[method], provider=selected_provider)
+            except ReviewError as exc:
+                status = {"status": "mismatch", "allows_current_claim": False, "reasons": [str(exc)],
+                          "action": "refresh_review_policy_or_reassess", "execution_verified": False}
         if row.get("retired"):
             status = {**status, "status": "historical", "allows_current_claim": False, "action": "view_history", "reasons": ["Retired historical obligation"]}
         rows[row["row_id"]] = {**status, "execution_verified": False}

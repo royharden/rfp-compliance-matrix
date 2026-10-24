@@ -29,6 +29,12 @@ def fingerprint(value: Any) -> str:
     return sha(canonical(value).encode("utf-8"))
 
 
+def _is_review_identity(value: Any) -> bool:
+    """Nominal provider-owned read-only role, never a prediction capability."""
+    from rfp_matrix.providers import is_review_policy_identity
+    return is_review_policy_identity(value)
+
+
 def require_digest(value: str) -> None:
     if not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
         raise ValueError("Expected lowercase SHA256 digest")
@@ -331,7 +337,7 @@ def run_comparison(frozen: FrozenComparison, public_inputs: Sequence[PublicInput
                    seal: bytes, build_observer: Any = None) -> dict[str, Any]:
     """Consume an external seal before any dispatch; emit sanitized protocol receipts.
 
-    Deliberately no paths, file reads, provider imports, cache, or seal creation.
+    Deliberately no paths, file reads, provider factory, cache, or seal creation.
     An absent arm is unmeasured; a failed arm cannot become a successful absence.
     """
     if sha(frozen.canonical_manifest.encode("utf-8")) != frozen.digest:
@@ -341,6 +347,8 @@ def run_comparison(frozen: FrozenComparison, public_inputs: Sequence[PublicInput
         raise ValueError("Legacy comparison remains historical; explicit new freeze is required")
     if set(ports) - set(METHODS) or not isinstance(seal, bytes) or not seal or len(seal) > 65536:
         raise ValueError("Unknown arm or absent/bounded seal")
+    if any(_is_review_identity(port) or not callable(getattr(port, "predict", None)) for port in ports.values()):
+        raise ValueError("Evaluation needs prediction ports; read-only policy identity cannot predict")
     # Reconstruct via the freezer to enforce its complete schema even on manually
     # constructed FrozenComparison objects.
     public_inputs = tuple(public_inputs)

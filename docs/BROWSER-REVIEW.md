@@ -76,3 +76,10 @@ The optional [amendment flow](AMENDMENTS.md) is reached from the matrix's Compar
 amendments link. Proposed correspondences, human lineage events, before/after
 literal context and unmapped mandatory rows remain distinct. Correspondence is
 never an approve/reapprove shortcut.
+
+Typed review currentness is supplied only by the trusted application/CLI, per
+[TYPED-REVIEW.md](TYPED-REVIEW.md). No new browser policy/config/live-admission
+fields or routes are introduced. Policy warnings are display-only; exact current
+source/evidence, restricted validation and opaque decision CAS still govern every
+POST. A policy identity does not grant run access, expand session grants or revive
+a stale approval. Multi-run bindings must be checked separately for each run.

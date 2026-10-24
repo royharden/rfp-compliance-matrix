@@ -273,3 +273,61 @@ current source/process. Legacy identity-v1 records still load and are inspectabl
 via `policy_history()`, but cannot match/relabel a new current v2 request. Captured
 live v2 results must carry the same semantic fingerprint and cannot be rebound
 to newly edited source. History and authored mocks never become live evidence.
+
+## Later-session read-only policy identity
+
+`review_policy_identity(config, *, semantic_provenance)` returns a frozen
+`ReviewPolicyIdentity`, exported from `rfp_matrix.providers`. The factory is
+pure: explicitly supplied config/descriptor only, no source collection, SDK,
+keys, ledger, tape, transport or approval consumption. Config must have
+`enabled=false`, `budget_usd="0"`, empty `admission_reference` and
+`approved_config_sha256`; this path cannot grant live authority. Nonsecret
+model/SDK/method, exact document ID/artifact SHA/corpus generation, fixed question
+and source policies, and exact semantic fingerprint remain required.
+
+Handle fields: `config` (validated immutable ProviderConfig, or None if invalid),
+`status` (`available`, `unavailable`, `restart_required`), fixed-code `reason`,
+`identity` (read-only mapping), and `semantic_provenance` (defensive descriptor
+copy). `identity` contains only method/model/sdk_name/sdk_version/question_policy/
+source_policy/document_id/source_sha256/corpus_sha256/semantic_fingerprint.
+It has no price/budget/admission/free-text fields. `read_only_policy=true`,
+`execution_verified=false`, `live_authorization_verified=false`.
+The handle has **no judge or dispatch method** and is not a JudgmentPort.
+Exported `is_review_policy_identity(value)` uses `type(value) is
+ReviewPolicyIdentity`, without evaluating arbitrary object properties. Its closed
+`purpose` is exported `REVIEW_POLICY_PURPOSE="review-policy-identity-only-v1"`.
+Evaluation/inference consumers must reject the actual type before consuming an
+execution seal; a marker string or config-shaped duck type alone is not trusted.
+
+The supplied descriptor must pass the closed pure integrity validator, match
+method/semantic fingerprint, be available and not require restart. F1/B0b need
+actual supplied TypeSafe metadata matching SDK 0.7.5; F2 needs matching Python
+stdlib version and retains its uncalibrated generated-label semantics. Missing
+or mismatched metadata fails closed. A valid descriptor is not independently
+trusted currentness, author authenticity or proof of historical execution.
+
+The explicit CLI/application operation must collect actual current provenance,
+bind the handle independently to each run/artifact/corpus, and compare recorded
+policy/model/SDK/question/source identities through the evidence owner. Do not
+compare the handle class or disabled config execution flags as if they identify
+the historical prediction transport. Never derive current proof from captured
+assessment data, reuse one document's config for another run, rehash old evidence
+as reassessed, or pass this handle to inference/evaluation adapters. Review still
+requires semantic currentness, original evidence integrity, existing decision
+CAS and genuine human action. F2 remains review-required; this handle does not
+calibrate labels or turn mock/replay into live observations. All behavior UNRUN.
+
+`policy_identity_projection(config) -> dict[str, Any]` is the shared **pure**
+ten-field projection used by `handle.identity` and the genuine prediction receipt
+producer. It accepts an actual execution `ProviderConfig` or closed mapping
+without changing enabled/budget/admission fields or evaluating live admission.
+It validates fixed policies and exact source/document/corpus/semantic binding,
+raising sanitized `M3Error(code="review_policy_identity_invalid")` when missing
+or invalid. An unavailable handle with incomplete identity exposes an empty
+mapping. The helper performs no descriptor collection, SDK/key/DB/transport I/O,
+approval consumption or execution/currentness assertion.
+
+Only a genuine new assessment may record the projected prediction identity;
+an old absent receipt remains legacy. Comparing the new receipt with a read-only
+handle does not require the same full admission config hash or runtime provider
+class. This semantic comparison never backfills or rebinds historical proof.

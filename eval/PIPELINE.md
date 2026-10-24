@@ -76,3 +76,8 @@ artifact and corpus bindings (B0b has its own provider method but shares F1 type
 inventory). Shared extraction cache identity excludes only the method selector;
 source/model/SDK/question/policy identities remain. Native planner/custodian
 contracts and prospective-only limits are documented in ENVELOPES.md.
+
+Provider-owned ReviewPolicyIdentity is read-only currentness metadata, never
+a prediction/judgment port. Evaluation consumers reject this role before invoking
+a delegate or consuming a seal. Matching prospective method/model/SDK/source/corpus
+identity cannot produce actual request/outcome provenance, usage or scores.

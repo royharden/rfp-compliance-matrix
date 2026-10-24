@@ -153,6 +153,25 @@ def _provider(args: argparse.Namespace, state: Path, *, artifact: dict, corpus: 
     return create_provider(config, ledger=ledger), config.config_sha256
 
 
+def _bind_review_policy(args: argparse.Namespace, store: Any) -> None:
+    """Explicit current-policy comparison input, entirely separate from dispatch."""
+    paths = getattr(args, "review_policy_config", None)
+    if not paths:
+        return
+    from .review import ReviewError
+    if args.command not in {"review", "decide", "resume", "export", "policy-status", "serve"}:
+        raise ReviewError("review_policy_command", "Read-only policy is available only on current-review commands.")
+    if any(getattr(args, name, None) for name in ("provider_config", "allow_live", "replay_tape", "run_envelope", "run_approval")):
+        raise ReviewError("review_policy_live_mixing", "Read-only review policy cannot be combined with inference, tape or live-admission inputs.")
+    if not isinstance(paths, list) or not 1 <= len(paths) <= 32:
+        raise ReviewError("review_policy_limit", "Repeat --review-policy-config only for distinct owned run/method policies, at most 32.")
+    from .providers import ProviderConfig
+    from .review.policy_binding import bind_review_policies
+    configs = [ProviderConfig.from_mapping(_policy_mapping(path)) for path in paths]
+    run_ids = args.run if args.command == "serve" else [args.run]
+    bind_review_policies(store, configs, run_ids=run_ids)
+
+
 def _source_context(snapshot: dict[str, Any], row: dict[str, Any]) -> str:
     from .source import resolve_anchor, resolve_context
     from .evidence import resolve_evidence
@@ -391,6 +410,8 @@ def build_parser() -> argparse.ArgumentParser:
         sub.choices[name].add_argument("--replay-tape")
         sub.choices[name].add_argument("--run-envelope")
         sub.choices[name].add_argument("--run-approval")
+    for name in ("review", "decide", "resume", "export", "policy-status", "serve"):
+        sub.choices[name].add_argument("--review-policy-config", action="append", help="Explicit disabled zero-budget nonsecret current-policy identity; repeat per run/method, never dispatches")
     evaluation = sub.add_parser("eval", help="Score an explicitly supplied development prediction/gold packet; no live calls")
     evaluation.add_argument("--input", required=True)
     evaluation.add_argument("--out")
@@ -438,6 +459,7 @@ def dispatch(args: argparse.Namespace) -> int:
         _print(report)
         return 0 if report["ok"] else 2
     store = _store(state)
+    _bind_review_policy(args, store)
     if args.command == "inventory-audit":
         report = store.inventory_audit(args.run)
         if getattr(args, "output", "json") == "text":

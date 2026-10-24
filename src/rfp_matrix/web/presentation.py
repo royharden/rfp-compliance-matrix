@@ -148,10 +148,14 @@ def _policy_view(snapshot: Mapping[str, Any], row: Mapping[str, Any]) -> dict[st
     reasons = _strings(supplied.get("reasons"))
     if not allowed and not reasons:
         reasons = ["Application-verified current semantic policy is unavailable; inspect history or explicitly reimport/reassess."]
+    if status == "missing" and _map(row.get("assessment")).get("method") in {"B0b", "F1", "F2"}:
+        reasons.append("Supply trusted --review-policy-config FILE for this run; this read-only policy never enables inference or repairs old evidence.")
     return {"status": status, "reasons": reasons, "allows_current_claim": allowed,
             "recorded_fingerprint": _text(supplied.get("recorded_fingerprint"), 64),
             "current_fingerprint": _text(supplied.get("current_fingerprint"), 64),
-            "action": _text(supplied.get("action"), 80), "execution_verified": False}
+            "action": _text(supplied.get("action"), 80),
+            "policy_input": "review-policy-identity-only-v1" if supplied.get("policy_input") == "review-policy-identity-only-v1" else None,
+            "execution_verified": False}
 
 
 def row_view(snapshot: Any, row: Any, *, context: Any = None, coverage: Any = None, changes: Any = None) -> dict[str, Any]:

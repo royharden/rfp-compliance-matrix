@@ -114,3 +114,13 @@ assumptions; unknown/disabled/partial states remain explicit. No planner, UI,
 comparison or evaluation was executed and no live budget is authorized.
 
 See [frozen build provenance](eval/BUILD-PROVENANCE.md) for full normalized semantic contexts, separate render identity, changed-pin refusal and explicit legacy limitations. Descriptors establish integrity only; runtime, security and quality remain unverified.
+
+## Later-session typed review
+
+The source-only [typed review journey](docs/TYPED-REVIEW.md) separates explicit
+read-only current-policy identity from inference admission and actual evidence.
+Matching configuration cannot refresh an assessment, change mock/replay origin,
+make F2 calibrated or approve a row. Missing/mismatched/restart policy stays
+noncurrent; trusted application policy and exact decision CAS remain required.
+The browser accepts no provider configuration or live-enable field. All new
+commands/guards and their regression definitions remain unrun.

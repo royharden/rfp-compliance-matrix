@@ -47,11 +47,13 @@ rfp-matrix reassess --run R --matrix-generation SHA --request-id ID --reason TEX
 Reassessment genuinely recomputes all active evidence, preserves manual origin and
 retired history, and invalidates active approvals. A parser/artifact policy mismatch
 requires actual update-source/reimport. Drift requires safe restart. Typed currentness
-requires the trusted application's actual injected provider port, never a stored
-model label. Disabled/unavailable typed paths remain needs-review; B0a is keyless.
+requires an explicitly supplied trusted current-policy identity or matching actual
+provider port under the owning currentness rules, never a stored model label. Disabled/unavailable typed paths remain needs-review; B0a is keyless.
 Future enabled provider commands also require exact --run-envelope INNER.json and
 --run-approval APPROVAL.json, plus existing admission. INNER is data.envelope from
 the run-envelope response, not the whole JSON command envelope. No live approval
 exists here. Replay requires disabled matching policy and rejects live-envelope
 mixing; legacy replay history is not rekeyed. See review/API.md in src/rfp_matrix
 for the owning API contract.
+
+For reopening typed runs without inference authority, follow [typed review](TYPED-REVIEW.md). A review identity enables only currentness inspection; it cannot reassess evidence or approve by itself.
