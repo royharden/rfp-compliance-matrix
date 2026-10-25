@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import sqlite3
 import subprocess
 import sys
 
@@ -112,10 +113,17 @@ def test_cli_graph_restart_export_and_corpus_invalidation(cli):
     assert presentations[0]["interrupt_count"] == 1
     assert (cli.state / "checkpoints.sqlite3").is_file()
 
-    args = decision_args(before, positive, "approve_positive", "approve-backups") + ("--human-validated",)
+    # The graph presentation supplies the stable request ID; inventing another
+    # ID exercises recovery into a new epoch instead of this exact pause.
+    args = decision_args(before, positive, "approve_positive",
+                         presentations[0]["presentation"]["request_id"]) + ("--human-validated",)
     approved = cli(*args)["data"]
     assert approved["event"]["approval"] == "approved_positive"
     assert approved["reconcile"]["status"] != "checkpoint_unavailable"
+    assert approved["reconcile"]["applied"] == 1 and approved["reconcile"]["pending"] == 0
+    with sqlite3.connect((cli.state / "checkpoints.sqlite3").as_uri() + "?mode=ro", uri=True) as db:
+        threads = {row[0] for row in db.execute("SELECT DISTINCT thread_id FROM checkpoints")}
+    assert threads == {presentations[0]["thread_id"]}, "Decision must resume the persisted thread without rebuilding an epoch"
     assert cli(*args)["data"]["event"] == approved["event"]
     restarted = cli("resume", "--run", "journey")["data"]["snapshot"]
     assert cli("history", "--run", "journey")["data"] == [approved["event"]]
