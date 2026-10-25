@@ -1,0 +1,10 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src
+WORKDIR /app
+COPY eval/docker-requirements.txt /app/eval/docker-requirements.txt
+RUN python -c "import hashlib,pathlib; p=pathlib.Path('/app/eval/docker-requirements.txt'); assert hashlib.sha256(p.read_bytes()).hexdigest() == '0cffb72f5488d245184ff5e5170e4b866e8b26453f8baa7a8009fcbebf960f9f'" \
+    && python -m pip install --no-cache-dir --require-hashes -r /app/eval/docker-requirements.txt
+COPY src/rfp_matrix /app/src/rfp_matrix
+COPY scripts/docker_sqlite_e2e.py /app/scripts/docker_sqlite_e2e.py
+ENTRYPOINT ["python", "/app/scripts/docker_sqlite_e2e.py"]

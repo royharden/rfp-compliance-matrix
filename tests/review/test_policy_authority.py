@@ -17,10 +17,11 @@ from rfp_matrix.source import SourceRegistry, parse_text_pages
 
 @pytest.fixture
 def policy_run(tmp_path):
-    artifact = parse_text_pages(["The vendor must provide daily audit reports.\nFictional background describes a monthly worksheet."],
+    artifact = parse_text_pages(["The vendor must provide daily audit reports.\n\nFictional background describes a monthly worksheet."],
         source_id="synthetic-policy", terms="Self-authored fictional development fixture")
     corpus = make_corpus([])
     built = build_matrix(artifact, corpus)
+    assert built["rows"][0]["requirement"]["literal_clause"] == "The vendor must provide daily audit reports."
     store = ReviewStore(tmp_path / "state")
     SourceRegistry(store.root / "sources").save(artifact)
     snapshot = store.create_run("R", artifact, corpus, built["rows"], inventory_report=built["inventory_report"])
