@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.26,<2"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -23,7 +23,10 @@ test = ["rfp-compliance-matrix[dev,web,graph]"]
 rfp-matrix = "rfp_matrix.cli:main"
 
 [tool.hatch.build]
-exclude = ["**/*.bak-*", "**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
+exclude = [
+    "**/*.bak-*", "**/__pycache__/**", "**/*.pyc", "**/*.pyo",
+    ".agent-work/**", ".venv/**", ".pytest_cache/**", "dist/**",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rfp_matrix"]
