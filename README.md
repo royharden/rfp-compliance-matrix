@@ -8,18 +8,19 @@ establish legal compliance or commit a vendor.
 
 ## Status
 
-**Construction source — runtime unverified.**
+**Local runtime validation in progress; independent acceptance pending.**
 
 - **Built (source only):** the Python core, CLI/TUI review workflow, SQLite review
   store and LangGraph pause/resume source, deterministic HTML/CSV/Markdown exports,
   optional local browser reviewer, and evaluation/scoring source, listed below.
-- **Not executed:** no test has been run or collected, and no app, parser,
-  database, LangGraph graph, template render, server, model or evaluation has been
-  executed. No live model or paid API call has been made; dependency versions are
-  unresolved and there is no lockfile.
-- **Construction caveat:** the code was written in a static-only construction
-  phase ("Dirty Mode"). Checks were limited to syntax parsing and source
-  inspection, so working behavior is an assumption until validated.
+- **Environment verified:** CPython 3.12.13, a committed `uv.lock`, and the local
+  test/web/graph environment installed successfully. The source distribution and
+  wheel built, and 412 inherited tests collected without collection errors.
+- **Validation boundary:** the code originated in a static-only construction
+  phase. Collection and packaging checks establish no complete workflow or
+  security acceptance; the runtime suite and independent review remain required.
+- No live model or paid API call has been made. Live-provider extras are excluded
+  from the default bootstrap.
 - No measured quality, speed, cost, security or release-readiness claim is made.
 - **Next step:** [activation and validation](docs/ACTIVATION.md) lists the bounded
   setup and runtime checks still required.
@@ -41,14 +42,22 @@ establish legal compliance or commit a vendor.
 - Actual four-arm source/evidence pipeline adapter source, closed provenance and
   source-only evaluation/custody regression definitions; none have been executed.
 
-## Intended later use
+## Local setup and use
 
-After environment activation and validation are authorized, resolve compatible
-licensed dependencies and the lockfile. The intended setup is `uv sync --extra
-graph`; it has not been run. The full regression suite installs with
-`uv sync --extra test` (dev, web and graph); with a narrower install, browser
-route/template tests skip without the web extra. Keep local state outside OneDrive and providers
-disabled/zero-budget. The proposed keyless journey is:
+Install `uv`, then run `python scripts/bootstrap.py` from any directory using the
+script's full path. It selects CPython 3.12.13 and installs the locked dev, web and
+graph extras into this checkout's `.venv`. Use `--python <interpreter-path>` for
+an existing interpreter, `--uv <executable-path>` to select uv, and `--offline`
+when all required packages and Python are already cached. A changed dependency
+manifest causes `--locked` installation to fail until an intentional lock update.
+The equivalent command is `uv sync --locked --python 3.12.13 --extra test`.
+For the narrower CLI/graph environment, use `uv sync --locked --python 3.12.13
+--extra graph`; browser tests then skip without the web extra. Run the inherited
+suite with `uv run --locked --extra test pytest`. Build distributions with
+`uv build`; Hatchling is pinned separately in `pyproject.toml`.
+
+Keep local state outside OneDrive and providers disabled/zero-budget. The keyless
+workflow below still requires full journey validation:
 
 ```text
 rfp-matrix diagnostics
@@ -85,8 +94,8 @@ external disclosure authorization after prospective spent-set consumption.
 
 ## Limits and pending validation
 
-Dependency pins and real parser/SQLite/checkpointer/provider compatibility remain
-unverified. Scans/OCR, autonomous commitments, proposal submission,
+Dependency pins are recorded in `uv.lock`; real parser/SQLite/checkpointer/provider
+workflow compatibility remains subject to runtime validation. Scans/OCR, autonomous commitments, proposal submission,
 cloud deployment and collaborative SaaS are outside this scope. Images, extraction
 errors and uncertain reading order cannot be cleared by a character-count shortcut.
 Human inspection is a source workflow, not proof of extraction completeness.
