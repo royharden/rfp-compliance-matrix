@@ -81,10 +81,30 @@ def _segments(text: str) -> Iterable[tuple[int, int]]:
                 yield left, right
 
 
+def _candidate_pages(source: Mapping[str, Any]) -> list[tuple[Mapping[str, Any], list[tuple[int, int]]]]:
+    """Bound the entire validated snapshot before constructing anchors or judging.
+
+    Oversized input must not pay for thousands of whole-artifact round trips or
+    dispatch a partial inventory before the candidate limit is discovered.
+    """
+    pages = []
+    count = 0
+    for page in source["pages"]:
+        spans = []
+        for span in _segments(page["text"]):
+            count += 1
+            if count > 2000:
+                raise M3Error("requirement_limit", "Inventory exceeds 2,000 candidates; no partial result accepted")
+            spans.append(span)
+        pages.append((page, spans))
+    return pages
+
+
 def inventory_report(artifact: Mapping[str, Any], *, method: str = "B0a", provider: Any = None,
                      _semantic_context: Mapping[str, Any] | None = None) -> dict[str, Any]:
     _method(method)
     source = validate_artifact(artifact)
+    candidate_pages = _candidate_pages(source)
     judgment_provider = judgment_port(provider, method)
     check_provider_sources(judgment_provider, artifact=source)
     semantic = dict(_semantic_context) if _semantic_context is not None else policy_context(method)
@@ -93,14 +113,15 @@ def inventory_report(artifact: Mapping[str, Any], *, method: str = "B0a", provid
     requirements: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
-    for page in source["pages"]:
-        for start, end in _segments(page["text"]):
+    for page, spans in candidate_pages:
+        for start, end in spans:
             if len(requirements) + len(rejected) >= 2000:
                 raise M3Error("requirement_limit", "Inventory exceeds 2,000 candidates; no partial audit accepted")
             literal = page["text"][start:end]
             section_id = next((s["section_id"] for s in page["sections"] if s["start"] <= start < s["end"]), None)
             anchor = make_anchor(source, page["page_index"], start, end, section_id=section_id)
-            resolve_anchor(source, anchor)
+            # make_anchor binds literal offsets/digest to this already validated
+            # private snapshot; untrusted pointers still use resolve_anchor.
             modal = bool(_MODAL.search(literal))
             mandatory = bool(re.search(r"\b(shall|must|required|mandatory)\b", literal, re.I))
             conditional, administrative = bool(_CONDITION.search(literal)), bool(_ADMIN.search(literal))
@@ -182,15 +203,17 @@ def inventory_requirements(artifact: Mapping[str, Any], *, method: str = "B0a", 
 def registered_source_candidates(artifact: Mapping[str, Any]) -> dict[str, Any]:
     """All preclassification candidates, including context later rejected; no port."""
     source = validate_artifact(artifact)
+    candidate_pages = _candidate_pages(source)
     candidates = []
-    for page in source["pages"]:
-        for start, end in _segments(page["text"]):
+    for page, spans in candidate_pages:
+        for start, end in spans:
             if len(candidates) >= 2000:
                 raise M3Error("requirement_limit", "Candidate freeze exceeds 2,000; no partial registry")
             literal = page["text"][start:end]
             section = next((s["section_id"] for s in page["sections"] if s["start"] <= start < s["end"]), None)
             anchor = make_anchor(source, page["page_index"], start, end, section_id=section)
-            resolve_anchor(source, anchor)
+            # The source snapshot was integrity-checked once above and the new
+            # anchor is constructed from its exact original text coordinates.
             identity = "R-" + digest("m3.requirement-id.v1", {"source_id": source["source"]["source_id"],
                 "page": page["page_index"], "start": start, "end": end})[:16]
             candidates.append({"candidate_id": identity, "anchor": anchor, "literal_clause": literal,
