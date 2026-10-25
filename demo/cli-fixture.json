@@ -1,0 +1,25 @@
+{
+  "origin": "project-authored fictional development regression",
+  "terms": "Project-authored fictional development example; no real vendor claim.",
+  "requirements": [
+    "The supplier shall provide daily encrypted backups.",
+    "The supplier must hold ISO 27001 certification.",
+    "The supplier must submit a project plan by Friday."
+  ],
+  "vendor_v1": [
+    {
+      "record_id": "backups",
+      "text": "The supplier shall provide daily encrypted backups.",
+      "terms": "Project-authored fictional development example; no real vendor claim.",
+      "fictional": true
+    }
+  ],
+  "vendor_v2_added": [
+    {
+      "record_id": "certification-denial",
+      "text": "This fictional supplier does not hold ISO 27001 certification.",
+      "terms": "Project-authored fictional development example; no real vendor claim.",
+      "fictional": true
+    }
+  ]
+}
