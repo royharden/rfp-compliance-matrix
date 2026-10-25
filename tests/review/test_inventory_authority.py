@@ -16,8 +16,8 @@ from rfp_matrix.source import SourceRegistry, parse_text_pages
 @pytest.fixture
 def inventory(tmp_path):
     artifact = parse_text_pages([
-        "The vendor must provide daily audit reports.\n"
-        "Fictional background describes a monthly worksheet.\n"
+        "The vendor must provide daily audit reports.\n\n"
+        "Fictional background describes a monthly worksheet.\n\n"
         "A fictional introduction describes the reporting team."
     ], source_id="synthetic-inventory", terms="Self-authored fictional development fixture")
     corpus = make_corpus([])
@@ -31,6 +31,7 @@ def inventory(tmp_path):
     wrapper = store.inventory_audit("R")
     candidates = [entry for entry in wrapper["audit"]["entries"] if entry["promotable"]]
     assert len(candidates) == 2
+    assert snapshot["rows"][0]["requirement"]["literal_clause"] == "The vendor must provide daily audit reports."
     return store, wrapper, candidates
 
 
