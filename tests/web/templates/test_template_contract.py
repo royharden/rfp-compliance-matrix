@@ -223,7 +223,12 @@ def test_captured_provenance_label_cannot_enable_application_currentness(environ
     assert vm["controls"]["actions"] == [] and vm["row"]["approved_answer"] is None
     html = render(environment, "row.html", vm)
     assert "Source integrity is not proof of executed assessment" in html
-    assert not Forms(html).forms
+    # Missing provenance forbids row mutations; authenticated sign-out remains
+    # available through the base template and cannot establish row currentness.
+    forms = Forms(html).forms
+    assert len(forms) == 1 and forms[0]["action"] == "/logout"
+    assert forms[0]["method"] == "post"
+    assert set(forms[0]["fields"]) == {"csrf_token"}
 
 
 def test_committed_inventory_download_uses_fixed_scoped_route(environment):
