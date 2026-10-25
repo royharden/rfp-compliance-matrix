@@ -118,7 +118,7 @@ def test_cli_graph_restart_export_and_corpus_invalidation(cli):
     assert approved["reconcile"]["status"] != "checkpoint_unavailable"
     assert cli(*args)["data"]["event"] == approved["event"]
     restarted = cli("resume", "--run", "journey")["data"]["snapshot"]
-    assert len(restarted["decision_events"]) == 1
+    assert cli("history", "--run", "journey")["data"] == [approved["event"]]
     assert next(row for row in restarted["rows"] if row["row_id"] == positive["row_id"])["approval"] == "approved_positive"
 
     export_args = ("export", "--run", "journey", "--out", cli.root / "exports",
@@ -171,7 +171,7 @@ def test_cli_rejects_gap_promotion_and_conflicting_request_reuse(cli):
     conflict = cli(*decision_args(snapshot, gap, "defer", "gap-ack"), exit_code=2)
     assert conflict["error"]["code"] == "idempotency_conflict"
     restarted = cli("resume", "--run", "journey")["data"]["snapshot"]
-    assert restarted["decision_events"] == [accepted]
+    assert cli("history", "--run", "journey")["data"] == [accepted]
     receipt = cli("export", "--run", "journey", "--out", cli.root / "exports",
                   "--matrix-generation", restarted["matrix_generation"], "--request-id", "gap-export")["data"]
     rows = read_csv(Path(receipt["bundle_dir"]))
