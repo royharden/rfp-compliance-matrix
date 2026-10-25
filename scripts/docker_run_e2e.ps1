@@ -11,13 +11,16 @@ $ErrorActionPreference = 'Stop'
 if ($ImageId -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Use the exact locally built image ID' }
 if ($Instance -notmatch '^r03-rv2-[a-z0-9-]+$') { throw 'Use a new r03-rv2-* instance' }
 if (Test-Path -LiteralPath $Receipt) { throw 'Preserve existing receipt; choose a new path' }
-& python $PortsScript claim --project m3 --instance $Instance --kind test --mode fixed --port db=22000 --owner $Owner
+$claimText = & python $PortsScript claim --project m3 --instance $Instance --kind test --mode fixed --port db=22000 --owner $Owner --json
 if ($LASTEXITCODE -ne 0) { throw 'M3 claim failed; no Docker resource created' }
+$claim = $claimText | ConvertFrom-Json
+if ($claim.project -ne 'm3' -or $claim.instance -ne $Instance -or $claim.bind -ne '127.0.0.1') { throw 'Unexpected M3 claim identity' }
 & python $PortsScript check "m3/$Instance"
 if ($LASTEXITCODE -ne 0) { throw 'M3 check blocked or unknown; no Docker resource created' }
 $container = "m3-$Instance-db"
 $volume = "m3-$Instance-state"
-$labels = @('--label', 'agentports.project=m3', '--label', "agentports.instance=$Instance", '--label', "agentports.owner=$Owner")
+$labels = @()
+foreach ($label in $claim.labels) { $labels += @('--label', $label) }
 & docker volume create @labels $volume
 if ($LASTEXITCODE -ne 0) { throw 'Volume creation failed' }
 # SQLite requires no host listener. The port claim is reserved but never published.

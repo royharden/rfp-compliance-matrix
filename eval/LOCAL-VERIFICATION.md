@@ -49,7 +49,7 @@ It imports this candidate's source directly; no live provider SDK is installed.
 
 After the hold is explicitly lifted, build from a full committed candidate using
 `scripts/docker_build_e2e.py --candidate <full-commit> --base-image
-python@sha256:<verified-base-digest> --owner <callsign>`. The builder requires an
+python@sha256:<verified-base-digest> --owner <owner-label-from-claim>`. The builder requires an
 immutable base digest and creates a tar context solely from allowlisted committed
 source/templates, the journey script, requirements and Dockerfile. It does not
 send the worktree's venv, scratch state, untracked files or credential files to
