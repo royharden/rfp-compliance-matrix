@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 if ($ImageId -notmatch '^sha256:[a-f0-9]{64}$') { throw 'Use the exact locally built image ID' }
 if ($Instance -notmatch '^r03-rv2-[a-z0-9-]+$') { throw 'Use a new r03-rv2-* instance' }
 if (Test-Path -LiteralPath $Receipt) { throw 'Preserve existing receipt; choose a new path' }
-& python $PortsScript claim --project m3 --instance $Instance --kind test --mode fixed --port db=21820 --owner $Owner
+& python $PortsScript claim --project m3 --instance $Instance --kind test --mode fixed --port db=22000 --owner $Owner
 if ($LASTEXITCODE -ne 0) { throw 'M3 claim failed; no Docker resource created' }
 & python $PortsScript check "m3/$Instance"
 if ($LASTEXITCODE -ne 0) { throw 'M3 check blocked or unknown; no Docker resource created' }

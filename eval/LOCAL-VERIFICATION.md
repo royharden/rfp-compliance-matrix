@@ -35,10 +35,10 @@ also be new, with an existing parent, to preserve prior artifacts.
 
 ## Docker execution boundary
 
-The same journey is intended to run in a packaged Python image with immutable
-dependencies. The PB-M3-R03 Integrator currently holds Docker starts until M3's
-port allocation is reconciled. A script or syntax check is not a container run.
-Record Docker as `not_run` while that hold applies.
+The same journey runs in a packaged Python image with immutable dependencies.
+PB-M3-R03 Addition 005 assigns M3 the corrected block 22000–22099 and permits the
+RV2 lane after a successful M3 claim/check. A script or syntax check is not a
+container run. Record Docker as `not_run` until execution evidence exists.
 
 `eval/docker-requirements.txt` is the byte-identical, hash-checked D8 export
 (SHA256 `0cffb72f5488d245184ff5e5170e4b866e8b26453f8baa7a8009fcbebf960f9f`),
@@ -60,7 +60,7 @@ After an exact local image is built, invoke
 your callsign, a fresh `r03-rv2-*` instance name and a new receipt path. It requires
 a successful m3 claim/check before creation, labels its m3-prefixed container and
 volume, publishes no port, runs with networking disabled and a read-only root,
-and preserves its stopped container and generated state. The reserved 21820
+and preserves its stopped container and generated state. The reserved 22000
 port is not a listener; SQLite itself requires no host network service.
 
 The run wrapper neither builds/pulls images nor cleans resources. The operator must
