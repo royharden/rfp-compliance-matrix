@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% from '_parts.html' import warnings, pointer, changes, policy_warning %}
+{% block title %}Row · {{ vm.row.row_id }}{% endblock %}
+{% block content %}
+<nav aria-label="Breadcrumb"><a href="/">Workspaces</a> / <a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}">{{ vm.run_id }}</a> / {{ vm.row.row_id }}</nav>
+<p class="eyebrow">Original source → fictional evidence → explicit decision</p><h1>{{ vm.row.row_id }}</h1>
+<p class="badge">{{ vm.row.label }} · {{ vm.evidence.status }}</p>
+{% if not vm.row.current or vm.row.retired %}<p class="warning">STALE / HISTORICAL / RETIRED — decision controls are unavailable. Refresh and inspect the current revision.</p>{% endif %}
+{{ warnings(vm.warnings) }}
+{{ policy_warning(vm.policy_status|default({}, true)) }}
+<div class="comparison"><section class="panel"><h2>Requirement</h2><p class="literal">{{ vm.requirement.literal_clause }}</p>
+  <dl><dt>Interpretation</dt><dd>{{ vm.requirement.interpretation }}</dd><dt>Mandatory</dt><dd>{{ 'yes' if vm.requirement.mandatory else 'no' }}</dd><dt>Conditional</dt><dd>{{ 'yes' if vm.requirement.conditional else 'no' }}</dd><dt>Administrative</dt><dd>{{ 'yes' if vm.requirement.administrative else 'no' }}</dd><dt>Applicability</dt><dd>{{ vm.requirement.applicability }}</dd><dt>Condition</dt><dd>{{ vm.requirement.condition }}</dd></dl>
+  {{ warnings(vm.requirement.uncertainty) }}
+  <h3>Literal source anchors</h3>{% for p in vm.requirement.anchors %}{{ pointer(p) }}{% else %}<p class="warning">Original source anchors unavailable. Do not approve without source inspection.</p>{% endfor %}
+</section><section class="panel"><h2>Evidence assessment</h2><p>{{ vm.evidence.reason }}</p><p class="meta">Method {{ vm.evidence.method }} · Origin {{ vm.evidence.origin }} · Model {{ vm.evidence.model }} · Validation {{ vm.evidence.validation_state }}</p>
+  {% if vm.evidence.method == 'F2' %}<p class="warning">Generated closed labels — no calibrated probabilities. Human review remains required.</p>{% endif %}
+  <h3>Supporting evidence</h3>{% for p in vm.evidence.support %}{{ pointer(p) }}{% else %}<p>No supporting passage selected.</p>{% endfor %}
+  <h3>Counterevidence</h3>{% for p in vm.evidence.counterevidence %}{{ pointer(p) }}{% else %}<p>No counterevidence selected. This is not proof that the corpus has no contradiction.</p>{% endfor %}
+</section></div>
+<section class="panel"><h2>Resolved original context</h2><p>Adjacent text is context, not additional cited evidence.</p>
+{{ warnings(vm.context.warnings) }}
+{% for p in vm.context.anchors %}<article>{{ pointer(p) }}<h3>Surrounding text</h3><pre>{{ p.context }}</pre>{% if p.previous_page_tail %}<details><summary>Previous page tail — context only</summary><pre>{{ p.previous_page_tail }}</pre></details>{% endif %}{% if p.next_page_head %}<details><summary>Next page head — context only</summary><pre>{{ p.next_page_head }}</pre></details>{% endif %}{{ warnings(p.issues) }}</article>{% else %}<p>Resolved source context is unavailable.</p>{% endfor %}
+</section>
+<section class="panel"><h2>Answer and decision history</h2>
+{% if vm.row.approved_answer is not none %}<h3>Current validated positive answer</h3><p class="literal">{{ vm.row.approved_answer }}</p>{% else %}<p class="warning">NO CURRENT APPROVED COMMITMENT</p><h3>Draft answer — unapproved</h3><p class="literal">{{ vm.row.answer_text }}</p>{% endif %}
+{% if vm.row.gap_acknowledged %}<p class="badge">Gap acknowledged. This records the missing/conflicting evidence; it does not create a positive commitment.</p>{% endif %}
+{% if vm.notes.text %}<h3>Unvalidated reviewer note</h3><p class="literal">{{ vm.notes.text }}</p><p>Excluded from approved answer.</p>{% endif %}
+<dl class="identities"><dt>Matrix generation</dt><dd><code>{{ vm.matrix_generation }}</code></dd><dt>Content row revision</dt><dd><code>{{ vm.row.row_revision }}</code></dd><dt>Effective decision CAS</dt><dd><code>{{ vm.controls.expected_row_revision }}</code></dd><dt>Assessment generation</dt><dd><code>{{ vm.row.assessment_generation }}</code></dd><dt>Decision event</dt><dd>{{ vm.row.decision_event_id }}</dd><dt>Reviewer</dt><dd>{{ vm.row.decision_actor }}</dd><dt>Decision time</dt><dd>{{ vm.row.decision_time }}</dd><dt>Invalidation reason</dt><dd>{{ vm.row.invalidation_reason }}</dd><dt>Parent</dt><dd>{{ vm.lineage.parent_id }}</dd><dt>Children</dt><dd>{{ vm.lineage.child_ids|join(', ') }}</dd><dt>Revision ancestry</dt><dd>{{ vm.lineage.revision_ancestry|join(', ') }}</dd></dl>
+</section>
+{% if vm.row.current and not vm.row.retired and vm.controls.actions and csrf_token and request_id and vm.controls.expected_assessment_generation and vm.controls.expected_row_revision %}
+<section class="panel"><h2>Record an explicit decision</h2><p>Applies only to these displayed revisions. The application rechecks currentness and resolves the reviewer identity. Refresh after any change.</p>
+{% for action in ['approve_positive','accept_gap','edit','reject','defer','not_applies'] %}{% if action in vm.controls.actions %}
+<form class="decision" method="post" action="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/rows/{{ vm.row.row_id|urlencode|replace('/', '%2F') }}/decide">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="request_id" value="{{ request_id }}">
+  <input type="hidden" name="expected_assessment_generation" value="{{ vm.controls.expected_assessment_generation }}"><input type="hidden" name="expected_row_revision" value="{{ vm.controls.expected_row_revision }}"><input type="hidden" name="action" value="{{ action }}">
+  <fieldset><legend>{% if action == 'approve_positive' %}Approve current supported answer{% elif action == 'accept_gap' %}Acknowledge evidence gap{% elif action == 'edit' %}Edit into pending review{% elif action == 'not_applies' %}Record not applicable{% else %}{{ action|capitalize }}{% endif %}</legend>
+  {% if action == 'approve_positive' %}<label class="check"><input type="checkbox" name="human_validated" value="true" required> I inspected this exact restricted answer, literal evidence and applicability and explicitly validate it.</label>{% endif %}
+  {% if action == 'accept_gap' %}<p>This acknowledges absent/conflicting evidence only. It cannot populate an approved positive commitment.</p>{% endif %}
+  {% if action == 'edit' %}<label for="answer-edit">Revised draft answer</label><textarea id="answer-edit" name="answer_text" rows="6" maxlength="20000" required>{{ vm.row.answer_text }}</textarea><p class="meta">Editing creates a pending unvalidated revision. Free prose is not approved by saving.</p>{% endif %}
+  <label for="reason-{{ action }}">Reason</label><textarea id="reason-{{ action }}" name="reason" rows="2" maxlength="8000"{% if action in ['reject','not_applies'] %} required{% endif %}></textarea>
+  <button type="submit">{% if action == 'approve_positive' %}Approve exact validated revision{% elif action == 'accept_gap' %}Acknowledge gap only{% elif action == 'edit' %}Save pending draft{% else %}Record {{ action }}{% endif %}</button>
+  </fieldset>
+</form>{% endif %}{% endfor %}
+</section>{% else %}<p class="warning">Decision controls unavailable for this revision or session. No approval is inferred.</p>{% endif %}
+{{ changes(vm.changes) }}
+{% endblock %}

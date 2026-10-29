@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Sign in{% endblock %}
+{% block session %}{% endblock %}
+{% block content %}
+<section class="login panel">
+  <p class="eyebrow">Private local workspace</p><h1>Sign in to review</h1>
+  <p>Use the one-time challenge delivered through the trusted local owner channel. The challenge is not an API key and does not authorize model calls.</p>
+  <form method="post" action="/login" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="credential">One-time reviewer challenge</label>
+    <input id="credential" name="credential" type="password" required maxlength="512" autocomplete="off" spellcheck="false" autocapitalize="none" aria-describedby="challenge-help">
+    <p id="challenge-help" class="meta">A missing, expired or previously used challenge cannot sign in. Never put it in a URL, source document or screenshot.</p>
+    <button type="submit">Sign in</button>
+  </form>
+  <p class="meta">If private local delivery is unavailable, the browser reviewer remains unavailable. The CLI/TUI workflow remains separate.</p>
+</section>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% from '_parts.html' import warnings %}
+{% from '_amendment_parts.html' import record %}
+{% block title %}Amendments · {{ vm.run_id }}{% endblock %}
+{% block content %}
+<nav aria-label="Breadcrumb"><a href="/">Workspaces</a> / <a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}">{{ vm.run_id }}</a> / Amendments</nav>
+<p class="eyebrow">Historical source → current source</p><h1>Amendment correspondence</h1>
+<p class="warning">PROPOSALS ONLY — lexical similarity is not semantic equivalence. Human correspondence records lineage only. It never approves, reapproves or carries any approval into a new generation.</p>
+{{ warnings(vm.warnings) }}
+{% if vm.truncated or vm.retrieval_incomplete %}<p class="warning">Candidate retrieval/display is incomplete or truncated. Unmapped rows are not proven additions/removals; inspect the full mandatory inventory.</p>{% endif %}
+<div class="comparison"><section class="panel"><h2>Previous snapshot</h2><dl class="identities">{% for key in ['matrix_generation','assessment_generation','artifact_sha','raw_sha','corpus_generation','snapshot_pin'] %}<dt>{{ key }}</dt><dd><code>{{ vm.old_identity[key] }}</code></dd>{% endfor %}</dl></section><section class="panel"><h2>Current snapshot</h2><dl class="identities">{% for key in ['matrix_generation','assessment_generation','artifact_sha','raw_sha','corpus_generation','snapshot_pin'] %}<dt>{{ key }}</dt><dd><code>{{ vm.new_identity[key] }}</code></dd>{% endfor %}</dl></section></div>
+<dl class="identities">{% for key, value in vm.counts.items() %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+<p class="meta">Comparison <code>{{ vm.comparison_id }}</code> · Report <code>{{ vm.report_sha }}</code> · Ancestry {{ vm.ancestry }}</p>
+
+<section><h2>Unmapped mandatory inventory</h2><div class="comparison"><div class="panel"><h3>Previous mandatory rows without displayed match</h3>{% for row in vm.unmapped_mandatory_old %}{{ record(row) }}{% else %}<p>No unmapped mandatory previous rows supplied. Incomplete retrieval does not establish that none exist.</p>{% endfor %}</div><div class="panel"><h3>Current mandatory rows without displayed match</h3>{% for row in vm.unmapped_mandatory_new %}{{ record(row) }}{% else %}<p>No unmapped mandatory current rows supplied. Incomplete retrieval does not establish that none exist.</p>{% endfor %}</div></div></section>
+
+<section><h2>Unconfirmed lexical proposals</h2>
+{% for candidate in vm.candidates %}<article class="panel"><h3>{{ candidate.old.row_id }} → {{ candidate.new.row_id }}</h3><p class="badge">UNCONFIRMED · token overlap {{ candidate.lexical_score if candidate.lexical_score is not none else 'unavailable' }}</p>
+{% if candidate.split_possible or candidate.merge_possible %}<p class="warning">Ambiguous correspondence:{% if candidate.split_possible %} split possible{% endif %}{% if candidate.merge_possible %} merge possible{% endif %}. No one-to-one ancestry is inferred.</p>{% endif %}{% if candidate.degrees_are_lower_bounds %}<p>Ambiguity counts are lower bounds.</p>{% endif %}
+<div class="comparison"><section><h4>Before</h4>{{ record(candidate.old) }}</section><section><h4>After</h4>{{ record(candidate.new) }}</section></div>
+<h4>Independent attribute changes</h4><dl>{% for change in candidate.field_changes %}<dt>{{ change.field }}</dt><dd>{{ change.old }} → {{ change.new }}</dd>{% else %}<dt>No displayed attribute change</dt><dd>Literal or semantic meaning may still differ.</dd>{% endfor %}</dl>
+<p class="meta">Candidate <code>{{ candidate.candidate_id }}</code> · Literal text {{ 'changed' if candidate.literal_changed else 'unchanged under this exact comparison' }}</p></article>
+{% else %}<div class="empty"><h3>No registered proposals available</h3><p>The set may be empty, unavailable or fully unmapped. No unchanged-source/compliance conclusion follows.</p></div>{% endfor %}
+</section>
+
+{% if vm.available and vm.controls.enabled and vm.run_id and csrf_token and request_id %}
+<section class="panel"><h2>Record human correspondence — lineage only</h2><p>Select registered old/current rows and the matching cardinality. Group options are bounded lexical proposals, not confirmed splits or merges. Added/removed use an empty selection on the opposite side. Unsupported or changed selections conflict at commit time.</p>
+<form method="post" action="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/amendments/correspondence">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="request_id" value="{{ request_id }}">
+<input type="hidden" name="expected_correspondence_revision" value="{{ vm.controls.expected_correspondence_revision|default('', true) }}">
+{% for key in ['expected_old_matrix_generation','expected_matrix_generation','expected_old_assessment_generation','expected_new_assessment_generation','expected_old_artifact_sha','expected_new_artifact_sha'] %}<input type="hidden" name="{{ key }}" value="{{ vm.controls[key] }}">{% endfor %}
+<label for="relation">Human correspondence relation</label><select id="relation" name="relation" required>{% for relation in ['one_to_one','split','merge','added','removed'] %}{% if relation in vm.controls.relations %}<option value="{{ relation }}">{{ relation }}</option>{% endif %}{% endfor %}</select>
+<label for="old-rows">Registered previous rows and exact revisions</label><select id="old-rows" name="old_rows" required>
+<option value="[]">No previous row (added only)</option>
+{% for row in vm.old_rows %}{% if not row.retired and row.row_id and row.row_revision %}<option value="{{ [{'row_id':row.row_id,'row_revision':row.row_revision}]|tojson|forceescape }}">{{ row.row_id }} · {{ row.row_revision }}</option>{% endif %}{% endfor %}
+{% for group in vm.candidates|groupby('new.row_id') %}{% set selection = namespace(rows=[],ids=[]) %}{% for candidate in group.list %}{% if not candidate.old.retired and candidate.old.row_id not in selection.ids %}{% set selection.rows = selection.rows + [{'row_id':candidate.old.row_id,'row_revision':candidate.old.row_revision}] %}{% set selection.ids = selection.ids + [candidate.old.row_id] %}{% endif %}{% endfor %}{% if selection.rows|length >= 2 and selection.rows|length <= 50 %}<option value="{{ selection.rows|tojson|forceescape }}">Proposed merge group for {{ group.grouper }}: {{ selection.ids|join(', ') }}</option>{% endif %}{% endfor %}
+</select>
+<label for="new-rows">Registered current rows and exact revisions</label><select id="new-rows" name="new_rows" required>
+<option value="[]">No current row (removed only)</option>
+{% for row in vm.new_rows %}{% if not row.retired and row.row_id and row.row_revision %}<option value="{{ [{'row_id':row.row_id,'row_revision':row.row_revision}]|tojson|forceescape }}">{{ row.row_id }} · {{ row.row_revision }}</option>{% endif %}{% endfor %}
+{% for group in vm.candidates|groupby('old.row_id') %}{% set selection = namespace(rows=[],ids=[]) %}{% for candidate in group.list %}{% if not candidate.new.retired and candidate.new.row_id not in selection.ids %}{% set selection.rows = selection.rows + [{'row_id':candidate.new.row_id,'row_revision':candidate.new.row_revision}] %}{% set selection.ids = selection.ids + [candidate.new.row_id] %}{% endif %}{% endfor %}{% if selection.rows|length >= 2 and selection.rows|length <= 50 %}<option value="{{ selection.rows|tojson|forceescape }}">Proposed split group for {{ group.grouper }}: {{ selection.ids|join(', ') }}</option>{% endif %}{% endfor %}
+</select>
+<label for="correspondence-reason">Human rationale</label><textarea id="correspondence-reason" name="reason" maxlength="4000" rows="4" required></textarea>
+<p>No answer, approval, actor or source span can be submitted by this form. Exact versions are rechecked; correspondence cannot preserve approval.</p><button type="submit">Record lineage only — no approval</button>
+</form></section>
+{% else %}<p class="warning">Correspondence controls unavailable: missing, stale or unsupported comparison/session identity. No lineage or approval is inferred.</p>{% endif %}
+
+<section class="panel"><h2>Separately recorded human lineage history</h2>
+{% for event in vm.human_events %}<article><h3>{{ event.relation }} · {{ event.event_id }}</h3><p>{{ 'This comparison' if event.current_comparison else 'OTHER / HISTORICAL comparison' }} · {{ event.created_at }} · {{ event.actor }}</p><p class="literal">{{ event.reason }}</p><p>Previous: {{ event.old_row_ids|join(', ') }} · Current: {{ event.new_row_ids|join(', ') }}</p><p class="meta">Comparison {{ event.comparison_id }} · Lineage record only; no approval carried.</p></article>{% else %}<p>No human correspondence events supplied. Proposals above remain unconfirmed.</p>{% endfor %}
+{% if vm.human_events_truncated %}<p class="warning">Human history display is truncated.</p>{% endif %}
+</section>
+<details><summary>All registered previous/current rows and exact versions</summary><div class="comparison"><section><h2>Previous inventory</h2>{% for row in vm.old_rows %}{{ record(row) }}{% else %}<p>Previous rows unavailable.</p>{% endfor %}</section><section><h2>Current inventory</h2>{% for row in vm.new_rows %}{{ record(row) }}{% else %}<p>Current rows unavailable.</p>{% endfor %}</section></div></details>
+{% endblock %}

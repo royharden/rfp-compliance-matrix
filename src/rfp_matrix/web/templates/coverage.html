@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% from '_parts.html' import warnings, notices %}
+{% block title %}Coverage · {{ vm.run_id }}{% endblock %}
+{% block content %}
+<nav aria-label="Breadcrumb"><a href="/">Workspaces</a> / <a href="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}">{{ vm.run_id }}</a> / Coverage</nav>
+<h1>Original-page coverage inspection</h1><p>Coverage is {{ 'complete under the recorded policy' if vm.complete else 'UNRESOLVED' }}. Inspection events supplement immutable parser artifacts; they do not perform OCR or establish vendor capability.</p>
+{{ warnings(vm.warnings) }}{{ warnings(vm.artifact_issues) }}{{ notices(vm.artifact_notices) }}
+<p class="meta">Artifact <code>{{ vm.artifact_sha }}</code> · Summary revision <code>{{ vm.summary_revision }}</code></p>
+{% if vm.unresolved_pages %}<p class="warning">Unresolved pages: {{ vm.unresolved_pages|join(', ') }}. Incomplete extraction cannot establish a complete inventory.</p>{% endif %}
+{% for page in vm.pages %}<section class="panel"><h2>Page {{ page.page_number|default('unknown', true) }}</h2><p>Parser: {{ page.coverage }} · {{ 'Resolved' if page.resolved else 'UNRESOLVED' }} · {{ page.disposition }}</p>
+{{ warnings(page.issues) }}<p>{{ page.reason }}</p><p class="meta">Reviewer {{ page.actor }} · Revision <code>{{ page.decision_revision }}</code> · Page hash <code>{{ page.page_sha }}</code></p>
+{% set policy = namespace(blocked=false) %}{% for issue in page.issues %}{% if issue not in ['native_text_sparse','no_native_text','table_reading_order_requires_inspection','possible_columns_require_inspection'] %}{% set policy.blocked = true %}{% endif %}{% endfor %}
+{% if vm.available and vm.artifact_sha and vm.matrix_generation and page.page_index is not none and page.page_sha and csrf_token and request_id %}
+<form method="post" action="/runs/{{ vm.run_id|urlencode|replace('/', '%2F') }}/coverage/inspect">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="request_id" value="{{ request_id }}-p{{ page.page_index }}">
+  <input type="hidden" name="page_index" value="{{ page.page_index }}"><input type="hidden" name="expected_artifact_sha" value="{{ vm.artifact_sha }}"><input type="hidden" name="expected_page_hash" value="{{ page.page_sha }}"><input type="hidden" name="expected_matrix_generation" value="{{ vm.matrix_generation }}"><input type="hidden" name="expected_coverage_revision" value="{{ page.expected_coverage_revision|default('', true) }}">
+  <fieldset><legend>Inspect original page {{ page.page_number }}</legend><p>Image-only, scanned and extraction-error pages cannot become supported extraction through acknowledgment. Inspect the actual original PDF through your trusted local source viewer.</p>
+  <label for="action-{{ page.page_index }}">Coverage decision</label><select id="action-{{ page.page_index }}" name="action" required><option value="flag_unresolved">Keep / flag unresolved</option>{% if not policy.blocked and page.coverage == 'empty' and (not page.issues or page.issues == ['no_native_text']) %}<option value="accept_blank">Acknowledge genuinely blank page</option>{% endif %}{% if not policy.blocked and page.coverage in ['ok','sparse'] %}<option value="accept_text">Acknowledge inspected native text / structure</option>{% endif %}</select>
+  <label class="check"><input type="checkbox" name="inspected_original" value="true"> I inspected the original page. Required for acceptance; never inferred.</label>
+  <label for="coverage-reason-{{ page.page_index }}">Inspection reason</label><textarea id="coverage-reason-{{ page.page_index }}" name="reason" rows="3" maxlength="8000" required></textarea>
+  <button type="submit">Record exact page decision</button></fieldset>
+</form>{% else %}<p class="warning">Exact page/version/session identity unavailable; inspection form disabled.</p>{% endif %}
+</section>{% else %}<div class="empty"><h2>No inspectable page state</h2><p>Page coverage is unavailable. Do not infer extraction completeness.</p></div>{% endfor %}
+<details><summary>Coverage audit revisions</summary><ul>{% for revision in vm.audit_revisions %}<li><code>{{ revision }}</code></li>{% else %}<li>No revision identifiers supplied.</li>{% endfor %}</ul></details>
+{% endblock %}

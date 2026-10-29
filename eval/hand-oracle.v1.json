@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "split": "dev",
+  "description": "Authored arithmetic example only. Expected values were reasoned on paper; this file is not an executed receipt or independent gold.",
+  "methods": {
+    "B0a": {
+      "origin": "hand_oracle",
+      "inventory": {
+        "equivalence_origin": "hand_oracle",
+        "gold_atoms": [
+          {"id": "g1", "mandatory": true, "document_id": "synthetic-1", "family_id": "authored", "page": 1, "clause": "Submit a plan."},
+          {"id": "g2", "mandatory": true, "document_id": "synthetic-1", "family_id": "authored", "page": 1, "clause": "Submit a budget."},
+          {"id": "g3", "mandatory": false, "document_id": "synthetic-1", "family_id": "authored", "page": 1, "clause": "A diagram is optional."}
+        ],
+        "predicted_atoms": [{"id": "p1"}, {"id": "p2"}, {"id": "p3"}],
+        "equivalence_edges": [["p1", "g1"], ["p1", "g2"], ["p2", "g1"], ["p3", "g1"]]
+      },
+      "retrieval_cases": [
+        {"id": "q1", "relevant_ids": ["e1", "e2"], "retrieved_ids": ["e2", "x"], "support_ids": ["e1"], "counterevidence_ids": ["e2"]},
+        {"id": "q2", "relevant_ids": ["e3"], "retrieved_ids": ["x", "e3"], "support_ids": ["e3"]}
+      ],
+      "citation_cases": [
+        {"id": "c1", "human_supported": true, "structurally_valid": true},
+        {"id": "c2", "human_supported": false, "structurally_valid": true}
+      ],
+      "abstention_cases": [
+        {"id": "a1", "gold_status": "cannot_answer_absent", "predicted_status": "cannot_answer_absent"},
+        {"id": "a2", "gold_status": "cannot_answer_conflicting", "predicted_status": "needs_review"},
+        {"id": "a3", "gold_status": "supported", "predicted_status": "cannot_answer_absent"}
+      ]
+    }
+  },
+  "expected_by_hand": {
+    "matched_atom_count": 2,
+    "inventory_precision": "2/3",
+    "inventory_recall": "2/3",
+    "mandatory_recall": "2/2",
+    "retrieval_recall_at_10": "(1/2 + 1)/2 = 3/4",
+    "retrieval_mrr_at_10": "(1 + 1/2)/2 = 3/4",
+    "citation_precision": "1/2",
+    "cannot_answer_precision": "1/2",
+    "cannot_answer_coverage": "1/2"
+  }
+}

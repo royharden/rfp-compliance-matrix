@@ -1,0 +1,13 @@
+{% macro record(row) -%}
+<article class="amendment-record">
+  <h3>{{ row.row_id }}{% if row.retired %} · RETIRED{% endif %}</h3>
+  <blockquote>{{ row.literal_excerpt }}</blockquote>
+  {% if row.literal_truncated %}<p class="warning">Literal excerpt truncated. Inspect original source before confirming lineage.</p>{% endif %}
+  <dl><dt>Interpretation</dt><dd>{{ row.interpretation_excerpt }}</dd><dt>Mandatory</dt><dd>{{ 'yes' if row.mandatory else 'no' }}</dd><dt>Conditional</dt><dd>{{ 'yes' if row.conditional else 'no' }}</dd><dt>Administrative</dt><dd>{{ 'yes' if row.administrative else 'no' }}</dd><dt>Applicability</dt><dd>{{ row.applicability }}</dd><dt>Condition</dt><dd>{{ row.condition }}</dd></dl>
+  {% if row.condition_truncated %}<p class="warning">Condition excerpt truncated.</p>{% endif %}
+  {% for anchor in row.anchors %}<details><summary>Original page {{ anchor.page_number }} · [{{ anchor.start }}, {{ anchor.end }})</summary><blockquote>{{ anchor.quote_excerpt }}</blockquote><p class="meta">Section {{ anchor.section_id }} · Artifact <code>{{ anchor.artifact_sha }}</code> · Excerpt hash <code>{{ anchor.excerpt_sha }}</code></p><pre>{{ anchor.context }}</pre><p>Surrounding context is not additional quoted evidence.</p>{% if anchor.quote_truncated %}<p class="warning">Quote excerpt truncated at original offset {{ anchor.quote_excerpt_end }}.</p>{% endif %}</details>{% else %}<p class="warning">Original anchors unavailable in this excerpt.</p>{% endfor %}
+  {% if row.anchors_truncated or row.unresolved_historical_anchors %}<p class="warning">Anchor display is incomplete or historical anchors could not resolve. No ancestry or approval is inferred.</p>{% endif %}
+  <details><summary>Exact registered row identity</summary><dl class="identities"><dt>Row revision</dt><dd><code>{{ row.row_revision }}</code></dd><dt>Requirement revision</dt><dd><code>{{ row.requirement_revision }}</code></dd><dt>Row pin</dt><dd><code>{{ row.row_pin }}</code></dd><dt>Parent</dt><dd>{{ row.parent_id }}</dd><dt>Children</dt><dd>{{ row.child_ids|join(', ') }}</dd></dl></details>
+  {% if row.uncertainty %}<ul class="warning">{% for issue in row.uncertainty %}<li>{{ issue }}</li>{% endfor %}</ul>{% endif %}
+</article>
+{%- endmacro %}

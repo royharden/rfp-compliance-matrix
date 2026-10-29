@@ -1,0 +1,21 @@
+# Credentials and local private material
+.env
+.env.*
+!.env.example
+.creds/
+ArchiveManager-creds.txt
+*.pem
+*.key
+*.p12
+*.pfx
+# Generated files and local agent state
+.agent-work/
+.venv*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+node_modules/
+*.zip
